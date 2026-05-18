@@ -176,7 +176,7 @@ class TransformerBeatTracker(BeatTracker):
                 beats = []
                 for i, result in enumerate(results):
                     beat_info = BeatInfo(
-                        time=float(result['beat']['onset"]),
+                        time=float(result['beat']['onset']),
                         beat_number=i,
                         is_downbeat=result['beat'].get('is_downbeat', (i % 4) == 0),
                         confidence=float(result['beat'].get('confidence', 0.9)),

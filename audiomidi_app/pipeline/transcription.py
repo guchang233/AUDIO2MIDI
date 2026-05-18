@@ -151,7 +151,7 @@ class PianoTranscriptionEngine:
             
             if sample_rate != PT_SR:
                 g = np.gcd(sample_rate, PT_SR)
-                samples = np resample_poly(
+                samples = np.resample_poly(
                     samples,
                     PT_SR // g,
                     sample_rate // g

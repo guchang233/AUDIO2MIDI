@@ -25,25 +25,25 @@ class SymbolicDecoderConfig:
     """符号解码器配置"""
     # Harmonic Suppression
     enable_harmonic_suppression: bool = True
-    harmonic_suppression_factor: float = 0.3
+    harmonic_suppression_factor: float = 0.5  # 降低抑制力度
     max_harmonic_order: int = 8
     harmonic_tolerance_cents: float = 15.0  # 半音 = 100 cents
     min_fundamental_confidence: float = 0.6
     
     # Temporal Note Linking
     enable_note_linking: bool = True
-    link_tolerance_seconds: float = 0.08
+    link_tolerance_seconds: float = 0.05  # 更严格的连接条件
     min_consecutive_frames: int = 3
     
     # Polyphony Pruning
     enable_polyphony_pruning: bool = True
-    max_simultaneous_notes: int = 10
-    piano_max_simultaneous: int = 10
+    max_simultaneous_notes: int = 12  # 更宽松的复调限制
+    piano_max_simultaneous: int = 12
     voice_max_simultaneous: int = 2
     
     # Beat-aware Quantization
-    enable_beat_quantization: bool = True
-    quantization_tolerance: float = 0.05  # 秒
+    enable_beat_quantization: bool = False  # 默认关闭
+    quantization_tolerance: float = 0.03  # 更严格的量化
     beat_subdivision: int = 8  # 8分音符
     
     # Voice Consistency
