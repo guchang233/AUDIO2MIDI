@@ -235,25 +235,3 @@ def separate_voices(
     hand_assignments = assign_hands(voices)
     
     return VoiceSeparationResult(voices=voices, hand_assignments=hand_assignments)
-
-
-class VoiceSeparationTranscriber:
-    def __init__(
-        self,
-        base_transcriber,
-        config: VoiceSeparationConfig | None = None,
-    ):
-        self._base = base_transcriber
-        self._config = config or VoiceSeparationConfig()
-        self.name = f"{base_transcriber.name} + Voice Separation"
-
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> VoiceSeparationResult:
-        events = self._base.transcribe(samples, sample_rate)
-        return separate_voices(events, self._config)
-    
-    def transcribe_to_midi_events(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
-        result = self.transcribe(samples, sample_rate)
-        all_notes: list[NoteEvent] = []
-        for voice in result.voices:
-            all_notes.extend(voice.notes)
-        return sorted(all_notes, key=lambda n: (n.start_s, n.note))

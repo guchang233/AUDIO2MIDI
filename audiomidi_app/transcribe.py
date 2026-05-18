@@ -9,6 +9,11 @@ from scipy.ndimage import median_filter
 from scipy.signal import find_peaks, resample_poly, stft, butter, sosfilt
 
 from audiomidi_app.midi import NoteEvent
+from audiomidi_app.voice_separation import (
+    separate_voices,
+    VoiceSeparationConfig,
+    VoiceSeparationResult,
+)
 
 
 class Transcriber(Protocol):
@@ -93,17 +98,6 @@ def compute_harmonic_salience(
     n_harmonics: int = 8,
     harmonic_decay: float = 0.8,
 ) -> np.ndarray:
-    """每个频率 bin 叠加其谐波列的能量，得到基频显著度。
-    
-    Args:
-        mag_linear: 线性幅度，shape (n_freq, n_frames)
-        f: 频率轴，shape (n_freq,)
-        n_harmonics: 考虑的谐波数量
-        harmonic_decay: 谐波权重衰减系数
-        
-    Returns:
-        salience: 谐波显著度，shape (n_freq, n_frames)
-    """
     weights = harmonic_decay ** np.arange(n_harmonics)
     weights /= weights.sum()
 
@@ -112,7 +106,6 @@ def compute_harmonic_salience(
         h = h_idx + 1
         target = f * h
         j = np.searchsorted(f, target, side="left")
-        # 只保留有效范围内的谐波，不clip到最后一个bin（否则会污染高频）
         valid = (j >= 0) & (j < len(f))
         sal[valid, :] += mag_linear[j[valid], :] * weights[h_idx]
 
@@ -156,9 +149,9 @@ def transcribe_drums(samples: np.ndarray, sr: int) -> list[NoteEvent]:
         return []
 
     bands = {
-        36: (40,  200),    # Kick
-        38: (200, 2000),   # Snare
-        42: (6000, 16000), # Hi-Hat
+        36: (40,  200),
+        38: (200, 2000),
+        42: (6000, 16000),
     }
 
     events = []
@@ -182,21 +175,6 @@ def apply_pedal_correction(
     pedal_events: list[dict],
     config: PedalConfig | None = None,
 ) -> list[NoteEvent]:
-    """使用踏板信息修正音符的结束时间，解决延音问题。
-    
-    核心逻辑：
-    1. 找出在踏板期间发声的音符
-    2. 如果音符的自然结束时间早于踏板抬起，延长到踏板抬起
-    3. 处理和弦：踏板期间多个音符应该同时延长
-    
-    Args:
-        events: 原始音符事件列表
-        pedal_events: 踏板事件列表，每个元素包含 start_time 和 end_time
-        config: 踏板处理配置
-        
-    Returns:
-        修正后的音符事件列表
-    """
     if config is None:
         config = PedalConfig()
     
@@ -406,7 +384,7 @@ class HarmonicSalienceTranscriber:
         if self._cfg.use_cqt:
             try:
                 import librosa
-                n_bins = 288  # 36 bins/octave × 8 octaves
+                n_bins = 288
                 cqt = librosa.cqt(
                     x,
                     sr=sample_rate,
@@ -543,11 +521,6 @@ class HarmonicSalienceTranscriber:
         return mag, f
 
 
-def hz_to_midi(freq_hz: np.ndarray) -> np.ndarray:
-    midi = 69.0 + 12.0 * np.log2(freq_hz / 440.0)
-    return np.rint(midi).astype(int)
-
-
 def amp_to_velocity(amp: float, mode: str = "linear") -> int:
     if mode == "piano":
         db = 20.0 * np.log10(max(1e-9, amp))
@@ -600,6 +573,49 @@ def available_transcribers() -> list[Transcriber]:
         transcribers.append(bp)
     
     return transcribers
+
+
+def available_voice_separation_transcribers(
+    voice_config: VoiceSeparationConfig | None = None,
+) -> list[Transcriber]:
+    base_transcribers = available_transcribers()
+    
+    voice_transcribers: list[Transcriber] = []
+    for base in base_transcribers:
+        voice_transcribers.append(
+            VoiceSeparationTranscriber(base, voice_config)
+        )
+    
+    return voice_transcribers
+
+
+class VoiceSeparationTranscriber:
+    name = "Voice Separation"
+
+    def __init__(
+        self,
+        base_transcriber: Transcriber,
+        voice_config: VoiceSeparationConfig | None = None,
+    ) -> None:
+        self._base = base_transcriber
+        self._voice_config = voice_config or VoiceSeparationConfig()
+        self._name = f"{base_transcriber.name} + Voice Sep"
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+        events = self._base.transcribe(samples, sample_rate)
+        result = separate_voices(events, self._voice_config)
+        all_notes: list[NoteEvent] = []
+        for voice in result.voices:
+            all_notes.extend(voice.notes)
+        return sorted(all_notes, key=lambda n: (n.start_s, n.note))
+    
+    def separate(self, samples: np.ndarray, sample_rate: int) -> VoiceSeparationResult:
+        events = self._base.transcribe(samples, sample_rate)
+        return separate_voices(events, self._voice_config)
 
 
 def try_piano_transcription_transcriber() -> Transcriber | None:
