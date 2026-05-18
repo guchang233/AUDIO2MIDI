@@ -53,6 +53,14 @@ class HarmonicSalienceConfig:
     use_cqt: bool = False
 
 
+@dataclass(frozen=True)
+class PedalConfig:
+    enabled: bool = True
+    min_sustained_notes: int = 2
+    max_extension_ratio: float = 4.0
+    min_extension_s: float = 0.05
+
+
 def parabolic_interpolation(freqs: np.ndarray, mags: np.ndarray, peak_idx: int) -> float:
     if peak_idx <= 0 or peak_idx >= len(mags) - 1:
         return freqs[peak_idx]
@@ -166,6 +174,85 @@ def transcribe_drums(samples: np.ndarray, sr: int) -> list[NoteEvent]:
                                     end_s=t + 0.05, velocity=90))
 
     events.sort(key=lambda e: e.start_s)
+    return events
+
+
+def apply_pedal_correction(
+    events: list[NoteEvent],
+    pedal_events: list[dict],
+    config: PedalConfig | None = None,
+) -> list[NoteEvent]:
+    """使用踏板信息修正音符的结束时间，解决延音问题。
+    
+    核心逻辑：
+    1. 找出在踏板期间发声的音符
+    2. 如果音符的自然结束时间早于踏板抬起，延长到踏板抬起
+    3. 处理和弦：踏板期间多个音符应该同时延长
+    
+    Args:
+        events: 原始音符事件列表
+        pedal_events: 踏板事件列表，每个元素包含 start_time 和 end_time
+        config: 踏板处理配置
+        
+    Returns:
+        修正后的音符事件列表
+    """
+    if config is None:
+        config = PedalConfig()
+    
+    if not config.enabled or not pedal_events:
+        return events
+    
+    if not events:
+        return events
+    
+    events = [NoteEvent(
+        note=e.note,
+        start_s=e.start_s,
+        end_s=e.end_s,
+        velocity=e.velocity,
+    ) for e in events]
+    
+    notes_by_pedal: dict[int, list[int]] = {}
+    
+    for pedal_idx, pedal in enumerate(pedal_events):
+        pedal_on = float(pedal["start_time"])
+        pedal_off = float(pedal["end_time"])
+        
+        sustained_notes: list[int] = []
+        
+        for note_idx, note in enumerate(events):
+            if note.start_s >= pedal_on and note.start_s <= pedal_off:
+                sustained_notes.append(note_idx)
+            elif note.start_s < pedal_on and note.end_s > pedal_on:
+                sustained_notes.append(note_idx)
+        
+        if len(sustained_notes) >= config.min_sustained_notes:
+            notes_by_pedal[pedal_idx] = sustained_notes
+    
+    for pedal_idx, note_indices in notes_by_pedal.items():
+        if not note_indices:
+            continue
+            
+        pedal = pedal_events[pedal_idx]
+        pedal_off = float(pedal["end_time"])
+        
+        for note_idx in note_indices:
+            note = events[note_idx]
+            
+            if note.end_s < pedal_off:
+                extension = pedal_off - note.end_s
+                original_duration = note.end_s - note.start_s
+                max_extension = original_duration * config.max_extension_ratio
+                
+                if extension >= config.min_extension_s and extension <= max_extension:
+                    events[note_idx] = NoteEvent(
+                        note=note.note,
+                        start_s=note.start_s,
+                        end_s=pedal_off,
+                        velocity=note.velocity,
+                    )
+    
     return events
 
 
@@ -335,8 +422,6 @@ class HarmonicSalienceTranscriber:
         else:
             mag, f = self._compute_stft_mag(x, sample_rate)
         
-        # 把 harmonic_weight 转换为合理的 harmonic_decay
-        # harmonic_weight 越大，高阶谐波权重越高（decay越慢）
         harmonic_decay = 1.0 - (1.0 / (self._cfg.harmonic_weight + 0.5))
         salience = compute_harmonic_salience(mag, f, n_harmonics=8, harmonic_decay=harmonic_decay)
         sal_db = 20.0 * np.log10(salience + 1e-12)
@@ -529,6 +614,7 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
         def __init__(self):
             from piano_transcription_inference import PianoTranscription
             self._model = PianoTranscription(device="cpu", duration=None)
+            self._pedal_config = PedalConfig()
 
         def transcribe(self, samples: np.ndarray, sample_rate_in: int) -> list[NoteEvent]:
             import soundfile as sf
@@ -561,6 +647,12 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                         end_s=float(note_info["offset_time"]),
                         velocity=int(np.clip(note_info["velocity"] * 127, 1, 127)),
                     ))
+                
+                pedal_events = result.get("pedal", [])
+                
+                events = apply_pedal_correction(events, pedal_events, self._pedal_config)
+                
+                events.sort(key=lambda e: (e.start_s, e.note))
                 return events
             finally:
                 try:
@@ -582,7 +674,6 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
         name = "Basic Pitch"
 
         def __init__(self):
-            # 预加载模型到内存（如果API支持的话）
             self._model_path = ICASSP_2022_MODEL_PATH
 
         def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
@@ -594,7 +685,6 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
             
             try:
                 sf.write(temp_wav, samples, sample_rate)
-                # 虽然我们无法直接避免predict内部重新加载，但至少API调用是一致的
                 model_output, midi_data, note_events = predict(temp_wav, self._model_path)
                 
                 events = []
@@ -615,6 +705,7 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
         def transcribe_file(self, in_path: str, out_dir: str) -> str:
             import os
             from pathlib import Path
+            from basic_pitch.inference import predict_and_save
 
             out = Path(out_dir)
             out.mkdir(parents=True, exist_ok=True)
