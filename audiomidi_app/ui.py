@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
 from audiomidi_app.audio import read_audio
 from audiomidi_app.cloud_client import CloudConfig, transcribe_via_cloud
@@ -37,8 +38,9 @@ try:
         QWidget,
         QGroupBox,
         QScrollArea,
+        QTextEdit,
     )
-    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QTextCursor
 except Exception as e:
     _qt_import_error = e
 
@@ -46,7 +48,7 @@ except Exception as e:
 @dataclass(frozen=True)
 class JobConfig:
     audio_path: str
-    out_path: str
+    out_dir: str
     engine: str
     bpm: float
     cloud_enabled: bool
@@ -63,11 +65,12 @@ def run_app() -> None:
 
     class Worker(QObject):
         progress = Signal(str)
+        detail = Signal(str)
         done = Signal(str)
         failed = Signal(str)
-        _interrupted = False
-        _result = None
-
+        notes_found = Signal(int)
+        voices_found = Signal(int)
+        
         def __init__(self, cfg: JobConfig) -> None:
             super().__init__()
             self._cfg = cfg
@@ -78,7 +81,8 @@ def run_app() -> None:
 
         def run(self) -> None:
             try:
-                self.progress.emit("开始转谱")
+                self.progress.emit("🚀 开始转谱")
+                self.detail.emit(f"[{self._time()}] 任务初始化...")
                 out = self._run_impl()
                 if self._interrupted:
                     return
@@ -87,17 +91,25 @@ def run_app() -> None:
                 if not self._interrupted:
                     self.failed.emit(str(e))
 
+        def _time(self) -> str:
+            return datetime.now().strftime("%H:%M:%S")
+
         def _run_impl(self) -> str:
             audio_path = Path(self._cfg.audio_path)
-            out_path = Path(self._cfg.out_path)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_dir = Path(self._cfg.out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / audio_path.with_suffix(".mid").name
+            
+            self.detail.emit(f"[{self._time()}] 输入文件: {audio_path}")
+            self.detail.emit(f"[{self._time()}] 输出目录: {out_dir}")
 
             if self._interrupted:
                 return ""
 
             if self._cfg.cloud_enabled:
                 try:
-                    self.progress.emit("调用云端转谱")
+                    self.progress.emit("☁️ 调用云端转谱")
+                    self.detail.emit(f"[{self._time()}] 连接云端: {self._cfg.cloud_base_url}")
                     midi_bytes = transcribe_via_cloud(
                         CloudConfig(base_url=self._cfg.cloud_base_url),
                         audio_path=audio_path,
@@ -105,30 +117,37 @@ def run_app() -> None:
                         bpm=self._cfg.bpm,
                     )
                     out_path.write_bytes(midi_bytes)
+                    self.detail.emit(f"[{self._time()}] 云端完成，文件已保存")
                     return str(out_path)
                 except Exception as e:
-                    self.progress.emit(f"云端失败，回退本地：{e}")
+                    self.detail.emit(f"[{self._time()}] ⚠️ 云端失败: {e}")
+                    self.progress.emit(f"⚠️ 云端失败，回退本地")
+                    self.detail.emit(f"[{self._time()}] 回退到本地引擎...")
 
             if self._interrupted:
                 return ""
 
             if self._cfg.engine == "Basic Pitch":
-                self.progress.emit("运行 Basic Pitch")
+                self.progress.emit("🎹 运行 Basic Pitch")
+                self.detail.emit(f"[{self._time()}] 加载 Basic Pitch 模型...")
                 bp = try_basic_pitch_transcriber()
                 if bp is None or not hasattr(bp, "transcribe_file"):
                     raise RuntimeError("当前环境未安装 basic-pitch 或不兼容")
-                midi_path = bp.transcribe_file(str(audio_path), out_dir=str(out_path.parent))
+                midi_path = bp.transcribe_file(str(audio_path), out_dir=str(out_dir))
                 if Path(midi_path) != out_path:
                     out_path.write_bytes(Path(midi_path).read_bytes())
                 return str(out_path)
 
-            self.progress.emit("分析音频")
+            self.progress.emit("📊 分析音频")
+            self.detail.emit(f"[{self._time()}] 读取音频文件...")
             audio = read_audio(audio_path, target_sr=None, mono=True)
+            self.detail.emit(f"[{self._time()}] 采样率: {audio.sample_rate}Hz, 时长: {len(audio.samples)/audio.sample_rate:.1f}秒")
 
             if self._interrupted:
                 return ""
 
-            self.progress.emit(f"生成音符（引擎：{self._cfg.engine}）")
+            self.progress.emit(f"🎵 生成音符（{self._cfg.engine}）")
+            self.detail.emit(f"[{self._time()}] 启动引擎: {self._cfg.engine}")
             
             transcribers = available_transcribers()
             transcriber: Any = None
@@ -144,16 +163,28 @@ def run_app() -> None:
                 return ""
 
             events = transcriber.transcribe(audio.samples, audio.sample_rate)
+            self.notes_found.emit(len(events))
+            self.detail.emit(f"[{self._time()}] 检测到 {len(events)} 个音符")
             voice_result: VoiceSeparationResult | None = None
 
             if self._cfg.use_voice_separation:
-                self.progress.emit("声部分离中...")
+                self.progress.emit("🎤 声部分离中...")
+                self.detail.emit(f"[{self._time()}] 开始声部分离...")
                 voice_result = separate_voices(events)
+                n_voices = len(voice_result.voices) if voice_result else 0
+                self.voices_found.emit(n_voices)
+                self.detail.emit(f"[{self._time()}] 分离出 {n_voices} 个声部")
+                
+                left_notes = voice_result.get_left_hand_notes() if voice_result else []
+                right_notes = voice_result.get_right_hand_notes() if voice_result else []
+                self.detail.emit(f"[{self._time()}] 左手: {len(left_notes)} 音符, 右手: {len(right_notes)} 音符")
 
-            self.progress.emit("写入MIDI")
+            self.progress.emit("💾 写入MIDI")
+            self.detail.emit(f"[{self._time()}] 生成 MIDI 文件...")
             
             if voice_result and self._cfg.split_hands:
-                self.progress.emit("分离左右手...")
+                self.progress.emit("✋ 分离左右手...")
+                self.detail.emit(f"[{self._time()}] 左右手分轨输出 (左Ch{self._cfg.left_hand_channel}, 右Ch{self._cfg.right_hand_channel})")
                 mid = events_to_midi_with_hands(
                     voice_result, 
                     bpm=self._cfg.bpm,
@@ -164,6 +195,7 @@ def run_app() -> None:
                 mid = events_to_midi(events, bpm=self._cfg.bpm)
             
             mid.save(str(out_path))
+            self.detail.emit(f"[{self._time()}] ✅ MIDI 已保存: {out_path.name}")
             return str(out_path)
 
     class MainWindow(QMainWindow):
@@ -197,12 +229,13 @@ def run_app() -> None:
 
             self._out_path = QLineEdit()
             self._out_path.setReadOnly(True)
-            pick_out = QPushButton("选择输出")
+            self._out_path.setPlaceholderText("选择MIDI输出文件夹")
+            pick_out = QPushButton("选择文件夹")
             pick_out.clicked.connect(self._on_pick_out)
             row_out = QHBoxLayout()
             row_out.addWidget(self._out_path, 1)
             row_out.addWidget(pick_out)
-            file_layout.addRow("MIDI输出", row_out)
+            file_layout.addRow("输出文件夹", row_out)
 
             file_group.setLayout(file_layout)
             main_layout.addWidget(file_group)
@@ -282,6 +315,26 @@ def run_app() -> None:
 
             tabs.addTab(tab_cloud, "云端")
 
+            # 日志页面
+            tab_log = QWidget()
+            log_layout = QVBoxLayout(tab_log)
+            
+            log_header = QHBoxLayout()
+            log_header.addWidget(QLabel("运行日志"))
+            self._clear_log_btn = QPushButton("清空")
+            self._clear_log_btn.setMaximumWidth(60)
+            self._clear_log_btn.clicked.connect(self._on_clear_log)
+            log_header.addWidget(self._clear_log_btn)
+            log_header.addStretch()
+            log_layout.addLayout(log_header)
+            
+            self._log_text = QTextEdit()
+            self._log_text.setReadOnly(True)
+            self._log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+            log_layout.addWidget(self._log_text)
+            
+            tabs.addTab(tab_log, "📋 日志")
+
             main_layout.addWidget(tabs, 1)
 
             # 按钮
@@ -307,6 +360,15 @@ def run_app() -> None:
             self._progress.setVisible(False)
             main_layout.addWidget(self._progress)
 
+            # 统计栏
+            stats_layout = QHBoxLayout()
+            self._notes_label = QLabel("音符: -")
+            self._voices_label = QLabel("声部: -")
+            stats_layout.addWidget(self._notes_label)
+            stats_layout.addWidget(self._voices_label)
+            stats_layout.addStretch()
+            main_layout.addLayout(stats_layout)
+
             # 状态栏
             status_group = QGroupBox("状态")
             status_layout = QVBoxLayout()
@@ -315,12 +377,16 @@ def run_app() -> None:
             self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
             status_layout.addWidget(self._status)
 
-            self._stats = QLabel("")
-            self._stats.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            status_layout.addWidget(self._stats)
-
             status_group.setLayout(status_layout)
             main_layout.addWidget(status_group)
+
+        def _log(self, msg: str) -> None:
+            self._log_text.append(msg)
+            self._log_text.moveCursor(QTextCursor.MoveOperation.End)
+            self._log_text.ensureCursorVisible()
+
+        def _on_clear_log(self) -> None:
+            self._log_text.clear()
 
         def dragEnterEvent(self, event: QDragEnterEvent) -> None:
             if event.mimeData().hasUrls():
@@ -340,8 +406,6 @@ def run_app() -> None:
                     ext = Path(path).suffix.lower()
                     if ext in ['.wav', '.flac', '.ogg', '.mp3', '.m4a']:
                         self._audio_path.setText(path)
-                        if not self._out_path.text():
-                            self._out_path.setText(str(Path(path).with_suffix(".mid")))
                         return
 
         def _on_engine_changed(self, idx: int) -> None:
@@ -366,15 +430,11 @@ def run_app() -> None:
             if not path:
                 return
             self._audio_path.setText(path)
-            if not self._out_path.text():
-                self._out_path.setText(str(Path(path).with_suffix(".mid")))
 
         def _on_pick_out(self) -> None:
-            path, _ = QFileDialog.getSaveFileName(self, "选择输出MIDI", "", "MIDI (*.mid)")
+            path = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
             if not path:
                 return
-            if not path.lower().endswith(".mid"):
-                path += ".mid"
             self._out_path.setText(path)
 
         def _set_ui_running(self, running: bool) -> None:
@@ -408,7 +468,7 @@ def run_app() -> None:
 
             cfg = JobConfig(
                 audio_path=audio,
-                out_path=outp,
+                out_dir=outp,
                 engine=self._engine.currentText(),
                 bpm=self._bpm.value(),
                 cloud_enabled=self._cloud.isChecked(),
@@ -421,13 +481,20 @@ def run_app() -> None:
 
             self._set_ui_running(True)
             self._status.setText("准备中...")
-            self._stats.setText("")
+            self._notes_label.setText("音符: -")
+            self._voices_label.setText("声部: -")
+            self._log_text.clear()
+            self._log(f"[{datetime.now().strftime('%H:%M:%S')}] ====== 开始转谱任务 ======")
+            self._log(f"[{datetime.now().strftime('%H:%M:%S')}] 引擎: {cfg.engine}, BPM: {cfg.bpm}")
 
             self._thread = QThread()
             self._worker = Worker(cfg)
             self._worker.moveToThread(self._thread)
             self._thread.started.connect(self._worker.run)
-            self._worker.progress.connect(self._status.setText)
+            self._worker.progress.connect(self._on_progress)
+            self._worker.detail.connect(self._log)
+            self._worker.notes_found.connect(lambda n: self._notes_label.setText(f"音符: {n}"))
+            self._worker.voices_found.connect(lambda n: self._voices_label.setText(f"声部: {n}"))
             self._worker.done.connect(self._on_done)
             self._worker.failed.connect(self._on_failed)
             self._worker.done.connect(self._thread.quit)
@@ -435,18 +502,26 @@ def run_app() -> None:
             self._thread.finished.connect(self._cleanup_thread)
             self._thread.start()
 
+        def _on_progress(self, msg: str) -> None:
+            self._status.setText(msg)
+            self._log(msg)
+
         def _on_stop(self) -> None:
             if self._worker is not None:
                 self._worker.interrupt()
             self._status.setText("正在停止...")
+            self._log(f"[{datetime.now().strftime('%H:%M:%S')}] 用户请求停止...")
 
         def _on_done(self, out_path: str) -> None:
             if out_path:
+                self._log(f"[{datetime.now().strftime('%H:%M:%S')}] ====== 任务完成 ======")
                 self._status.setText(f"✅ 完成：{out_path}")
             else:
+                self._log(f"[{datetime.now().strftime('%H:%M:%S')}] 任务已停止")
                 self._status.setText("⏹ 已停止")
 
         def _on_failed(self, msg: str) -> None:
+            self._log(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ 错误: {msg}")
             self._status.setText(f"❌ 失败：{msg}")
 
         def _cleanup_thread(self) -> None:
@@ -461,7 +536,7 @@ def run_app() -> None:
 
     app = QApplication([])
     w = MainWindow()
-    w.resize(720, 520)
+    w.resize(800, 600)
     w.show()
     app.exec()
 
