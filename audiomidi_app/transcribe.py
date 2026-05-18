@@ -9,6 +9,7 @@ from scipy.ndimage import median_filter
 from scipy.signal import find_peaks, resample_poly, stft, butter, sosfilt
 
 from audiomidi_app.midi import NoteEvent
+from audiomidi_app.postprocess import full_postprocess, PostProcessConfig
 from audiomidi_app.voice_separation import (
     separate_voices,
     VoiceSeparationConfig,
@@ -667,6 +668,8 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                 pedal_events = result.get("pedal", [])
                 
                 events = apply_pedal_correction(events, pedal_events, self._pedal_config)
+                
+                events = full_postprocess(events, samples, PT_SR, config=None)
                 
                 events.sort(key=lambda e: (e.start_s, e.note))
                 return events
