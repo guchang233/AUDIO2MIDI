@@ -876,6 +876,22 @@ class ProductionPipeline:
                 print(f"Warning: Ensemble transcription unavailable: {e}")
                 self._router = None
         
+        # Symbolic Decoder (P0 优先)
+        try:
+            from audiomidi_app.symbolic_decoder import (
+                SymbolicDecoder,
+                SymbolicDecoderConfig,
+                create_symbolic_decoder,
+            )
+            
+            self._symbolic_decoder = create_symbolic_decoder("default")
+            print("Symbolic Decoder loaded successfully")
+        except Exception as e:
+            print(f"Warning: Symbolic decoder unavailable: {e}")
+            import traceback
+            traceback.print_exc()
+            self._symbolic_decoder = None
+        
         if self._enable_symbolic_refinement:
             try:
                 from audiomidi_app.pipeline.symbolic_refinement import (
@@ -911,9 +927,10 @@ class ProductionPipeline:
         
         Pipeline:
         Audio → Stem Separation → Multi-Engine Transcription 
-                → Symbolic Refinement → Beat-Aligned Quantization → MIDI
+                → Symbolic Decoder (P0 核心) → Beat-Aligned Quantization → MIDI
         """
         try:
+            # 步骤 1: 源分离 (如果可用)
             if self._separator is not None:
                 stems = self._separator.separate(samples, sample_rate)
             else:
@@ -927,15 +944,32 @@ class ProductionPipeline:
                     sample_rate=sample_rate,
                 )
             
+            # 步骤 2: 转录
             notes = self._transcribe_stems(stems)
             
+            # 步骤 3: 获取节拍信息
+            tempo = 120.0
+            beats = []
             if self._beat_tracker is not None:
-                tempo_map = self._beat_tracker.track(samples, sample_rate)
-                notes = self._align_to_tempo(notes, tempo_map)
+                try:
+                    tempo_map = self._beat_tracker.track(samples, sample_rate)
+                    tempo = tempo_map.bpm
+                    beats = [beat.time for beat in tempo_map.beats]
+                except Exception as e:
+                    print(f"Beat tracking failed: {e}")
             
+            # 步骤 4: Symbolic Decoder (P0 核心解码)
+            if self._symbolic_decoder is not None:
+                print(f"Running Symbolic Decoder on {len(notes)} notes...")
+                notes_before = len(notes)
+                notes = self._symbolic_decoder.decode(notes, tempo, beats)
+                print(f"Symbolic Decoder complete: {len(notes)} notes (from {notes_before})")
+            
+            # 步骤 5: 其他 Symbolic Refinement (可选)
             if self._symbolic_refiner is not None:
                 notes = self._symbolic_refiner.refine(notes)
             
+            # 步骤 6: 后处理
             notes = self._postprocess(notes, samples, sample_rate)
             
             notes.sort(key=lambda n: (n.start_s, n.note))
