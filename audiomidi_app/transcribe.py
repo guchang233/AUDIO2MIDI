@@ -582,7 +582,7 @@ def merge_overlaps(events: list[NoteEvent]) -> list[NoteEvent]:
     return merged
 
 
-def try_piano_transcription_transcriber() -> NeuralTranscriber | None:
+def try_piano_transcription_transcriber() -> Transcriber | None:
     """Try to load PianoTranscription model - may fail without correct download!"""
     try:
         from piano_transcription_inference import PianoTranscription
@@ -736,7 +736,7 @@ def available_transcribers() -> list[Transcriber]:
     return transcribers
 
 
-def available_dsp_transcribers() -> list[DSPTranscriber]:
+def available_dsp_transcribers() -> list[Transcriber]:
     return [
         HarmonicSalienceTranscriber(),
         SpectralPeaksTranscriber(),

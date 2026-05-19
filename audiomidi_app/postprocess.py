@@ -87,8 +87,7 @@ class OnsetDetector:
     
     def has_onset_near(self, time: float, threshold: float = 0.03) -> bool:
         """检查附近是否有 onset"""
-        rounded = round(time, 3)
-        return rounded in self._onset_set
+        return self.find_nearby_onset(time, threshold=threshold) is not None
 
 
 def apply_harmonic_confidence_adjustment(
@@ -114,20 +113,20 @@ def apply_harmonic_confidence_adjustment(
             confidence=event.confidence,
         )
         
-        for other in adjusted:
-            if other.end_s < event.start_s - 0.01:
-                continue
-            
+        for other in reversed(adjusted):
+            if other.end_s < event.start_s - 0.5:
+                break
+
             other_hz = 440.0 * (2.0 ** ((other.note - 69) / 12.0))
             event_hz = 440.0 * (2.0 ** ((event.note - 69) / 12.0))
-            
+
             for h in range(2, config.harmonic_order + 1):
                 harmonic_hz = other_hz * h
-                
+
                 if abs(harmonic_hz - event_hz) < event_hz * 0.05:
                     e.confidence *= config.harmonic_confidence_factor
                     break
-            
+
             if e.confidence < 0.4:
                 break
         

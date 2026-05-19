@@ -50,6 +50,7 @@ class JobConfig:
     out_dir: str
     engine: str
     bpm: float
+    auto_bpm: bool
     cloud_enabled: bool
     cloud_base_url: str
     use_voice_separation: bool
@@ -65,6 +66,7 @@ def run_app() -> None:
     class Worker(QObject):
         progress = Signal(str)
         detail = Signal(str)
+        progress_percent = Signal(int)
         done = Signal(str)
         failed = Signal(str)
         notes_found = Signal(int)
@@ -81,10 +83,17 @@ def run_app() -> None:
         def run(self) -> None:
             try:
                 self.progress.emit("🚀 开始转谱")
+                self.progress_percent.emit(0)
                 self.detail.emit(f"[{self._time()}] 任务初始化...")
+                self.detail.emit(f"[{self._time()}] 引擎: {self._cfg.engine}")
+                if self._cfg.auto_bpm:
+                    self.detail.emit(f"[{self._time()}] BPM: 自动检测")
+                else:
+                    self.detail.emit(f"[{self._time()}] BPM: {self._cfg.bpm}")
                 out = self._run_impl()
                 if self._interrupted:
                     return
+                self.progress_percent.emit(100)
                 self.done.emit(out)
             except Exception as e:
                 if not self._interrupted:
@@ -99,8 +108,10 @@ def run_app() -> None:
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / audio_path.with_suffix(".mid").name
             
-            self.detail.emit(f"[{self._time()}] 输入文件: {audio_path}")
-            self.detail.emit(f"[{self._time()}] 输出目录: {out_dir}")
+            self.detail.emit(f"[{self._time()}] 📁 输入文件: {audio_path}")
+            self.detail.emit(f"[{self._time()}] 📁 输出目录: {out_dir}")
+            self.detail.emit(f"[{self._time()}] 🎯 输出文件: {out_path.name}")
+            self.progress_percent.emit(5)
 
             if self._interrupted:
                 return ""
@@ -116,7 +127,7 @@ def run_app() -> None:
                         bpm=self._cfg.bpm,
                     )
                     out_path.write_bytes(midi_bytes)
-                    self.detail.emit(f"[{self._time()}] 云端完成，文件已保存")
+                    self.detail.emit(f"[{self._time()}] ✅ 云端完成，文件已保存")
                     return str(out_path)
                 except Exception as e:
                     self.detail.emit(f"[{self._time()}] ⚠️ 云端失败: {e}")
@@ -126,15 +137,27 @@ def run_app() -> None:
             if self._interrupted:
                 return ""
 
-            self.progress.emit("📊 分析音频")
+            self.progress.emit("📊 分析音频 (1/4)")
+            self.progress_percent.emit(15)
             self.detail.emit(f"[{self._time()}] 读取音频文件...")
             audio = read_audio(audio_path, target_sr=None, mono=True)
-            self.detail.emit(f"[{self._time()}] 采样率: {audio.sample_rate}Hz, 时长: {len(audio.samples)/audio.sample_rate:.1f}秒")
+            duration = len(audio.samples) / audio.sample_rate
+            self.detail.emit(f"[{self._time()}] ✅ 音频加载完成")
+            self.detail.emit(f"[{self._time()}]    采样率: {audio.sample_rate} Hz")
+            self.detail.emit(f"[{self._time()}]    时长: {duration:.2f} 秒")
+            self.detail.emit(f"[{self._time()}]    采样数: {len(audio.samples):,}")
+
+            if self._cfg.auto_bpm:
+                self.detail.emit(f"[{self._time()}] 自动检测 BPM...")
+                from audiomidi_app.transcribe import detect_bpm
+                detected = detect_bpm(audio.samples, audio.sample_rate)
+                self.detail.emit(f"[{self._time()}] ✅ BPM 检测完成: {detected:.1f}")
 
             if self._interrupted:
                 return ""
 
-            self.progress.emit(f"🎵 生成音符（{self._cfg.engine}）")
+            self.progress.emit(f"🎵 生成音符 (2/4) - {self._cfg.engine}")
+            self.progress_percent.emit(35)
             self.detail.emit(f"[{self._time()}] 启动引擎: {self._cfg.engine}")
             
             # 使用传统引擎
@@ -151,29 +174,63 @@ def run_app() -> None:
             if self._interrupted:
                 return ""
 
+            self.detail.emit(f"[{self._time()}] 正在分析音频特征...")
             events = transcriber.transcribe(audio.samples, audio.sample_rate)
             self.notes_found.emit(len(events))
-            self.detail.emit(f"[{self._time()}] 检测到 {len(events)} 个音符")
+            self.detail.emit(f"[{self._time()}] ✅ 音符检测完成")
+            self.detail.emit(f"[{self._time()}]    检测到 {len(events)} 个音符")
+            if events:
+                avg_vel = sum(e.velocity for e in events) / len(events)
+                self.detail.emit(f"[{self._time()}]    平均力度: {avg_vel:.1f}")
+                duration_range = max(e.end_s for e in events) - min(e.start_s for e in events)
+                self.detail.emit(f"[{self._time()}]    音符跨度: {duration_range:.2f} 秒")
+            self.progress_percent.emit(50)
+
+            # 后处理：onset精调、重复音合并、velocity归一化、平滑等
+            self.progress.emit("🔧 后处理 (3/5)")
+            self.progress_percent.emit(55)
+            self.detail.emit(f"[{self._time()}] 后处理中...")
+            from audiomidi_app.postprocess import full_postprocess, PostProcessConfig, OnsetDetector
+            onset_detector = OnsetDetector(audio.sample_rate)
+            onset_detector.detect(audio.samples)
+            events = full_postprocess(
+                events,
+                samples=audio.samples,
+                sample_rate=audio.sample_rate,
+                bpm=self._cfg.bpm,
+                onset_detector=onset_detector,
+            )
+            self.detail.emit(f"[{self._time()}] ✅ 后处理完成")
+            self.detail.emit(f"[{self._time()}]    剩余 {len(events)} 个音符")
+            self.progress_percent.emit(60)
+
             voice_result: VoiceSeparationResult | None = None
 
             if self._cfg.use_voice_separation:
-                self.progress.emit("🎤 声部分离中...")
+                self.progress.emit("🎤 声部分离 (3/4)")
+                self.progress_percent.emit(70)
                 self.detail.emit(f"[{self._time()}] 开始声部分离...")
                 voice_result = separate_voices(events)
                 n_voices = len(voice_result.voices) if voice_result else 0
                 self.voices_found.emit(n_voices)
-                self.detail.emit(f"[{self._time()}] 分离出 {n_voices} 个声部")
+                self.detail.emit(f"[{self._time()}] ✅ 声部分离完成")
+                self.detail.emit(f"[{self._time()}]    分离出 {n_voices} 个声部")
                 
                 left_notes = voice_result.get_left_hand_notes() if voice_result else []
                 right_notes = voice_result.get_right_hand_notes() if voice_result else []
-                self.detail.emit(f"[{self._time()}] 左手: {len(left_notes)} 音符, 右手: {len(right_notes)} 音符")
+                self.detail.emit(f"[{self._time()}]    左手: {len(left_notes)} 音符")
+                self.detail.emit(f"[{self._time()}]    右手: {len(right_notes)} 音符")
+            else:
+                self.progress_percent.emit(75)
 
-            self.progress.emit("💾 写入MIDI")
+            self.progress.emit("💾 写入MIDI (4/4)")
+            self.progress_percent.emit(85)
             self.detail.emit(f"[{self._time()}] 生成 MIDI 文件...")
             
             if voice_result and self._cfg.split_hands:
-                self.progress.emit("✋ 分离左右手...")
-                self.detail.emit(f"[{self._time()}] 左右手分轨输出 (左Ch{self._cfg.left_hand_channel}, 右Ch{self._cfg.right_hand_channel})")
+                self.detail.emit(f"[{self._time()}] 左右手分轨输出")
+                self.detail.emit(f"[{self._time()}]    左手 Channel: {self._cfg.left_hand_channel}")
+                self.detail.emit(f"[{self._time()}]    右手 Channel: {self._cfg.right_hand_channel}")
                 mid = events_to_midi_with_hands(
                     voice_result, 
                     bpm=self._cfg.bpm,
@@ -184,7 +241,12 @@ def run_app() -> None:
                 mid = events_to_midi(events, bpm=self._cfg.bpm)
             
             mid.save(str(out_path))
-            self.detail.emit(f"[{self._time()}] ✅ MIDI 已保存: {out_path.name}")
+            file_size = out_path.stat().st_size
+            self.progress_percent.emit(95)
+            self.detail.emit(f"[{self._time()}] ✅ MIDI 已保存")
+            self.detail.emit(f"[{self._time()}]    文件: {out_path.name}")
+            self.detail.emit(f"[{self._time()}]    大小: {file_size / 1024:.1f} KB")
+            self.detail.emit(f"[{self._time()}]    路径: {out_path}")
             return str(out_path)
 
     class MainWindow(QMainWindow):
@@ -207,7 +269,6 @@ def run_app() -> None:
             file_layout = QFormLayout()
 
             self._audio_path = QLineEdit()
-            self._audio_path.setReadOnly(True)
             self._audio_path.setPlaceholderText("拖拽音频文件到此处或点击选择")
             pick_audio = QPushButton("选择音频")
             pick_audio.clicked.connect(self._on_pick_audio)
@@ -217,7 +278,6 @@ def run_app() -> None:
             file_layout.addRow("音频输入", row_audio)
 
             self._out_path = QLineEdit()
-            self._out_path.setReadOnly(True)
             self._out_path.setPlaceholderText("选择MIDI输出文件夹")
             pick_out = QPushButton("选择文件夹")
             pick_out.clicked.connect(self._on_pick_out)
@@ -347,6 +407,9 @@ def run_app() -> None:
             # 进度
             self._progress = QProgressBar()
             self._progress.setVisible(False)
+            self._progress.setRange(0, 100)
+            self._progress.setTextVisible(True)
+            self._progress.setFormat("%p% - %v/100")
             main_layout.addWidget(self._progress)
 
             # 统计栏
@@ -395,6 +458,11 @@ def run_app() -> None:
                     ext = Path(path).suffix.lower()
                     if ext in ['.wav', '.flac', '.ogg', '.mp3', '.m4a']:
                         self._audio_path.setText(path)
+                        # 自动设置输出目录为音频文件所在目录
+                        audio_dir = str(Path(path).parent)
+                        if not self._out_path.text().strip():
+                            self._out_path.setText(audio_dir)
+                            self._log(f"[{datetime.now().strftime('%H:%M:%S')}] 自动设置输出目录: {audio_dir}")
                         return
 
         def _on_engine_changed(self, idx: int) -> None:
@@ -419,6 +487,11 @@ def run_app() -> None:
             if not path:
                 return
             self._audio_path.setText(path)
+            # 自动设置输出目录为音频文件所在目录
+            audio_dir = str(Path(path).parent)
+            if not self._out_path.text().strip():
+                self._out_path.setText(audio_dir)
+                self._log(f"[{datetime.now().strftime('%H:%M:%S')}] 自动设置输出目录: {audio_dir}")
 
         def _on_pick_out(self) -> None:
             path = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
@@ -460,6 +533,7 @@ def run_app() -> None:
                 out_dir=outp,
                 engine=self._engine.currentText(),
                 bpm=self._bpm.value(),
+                auto_bpm=self._auto_bpm.isChecked(),
                 cloud_enabled=self._cloud.isChecked(),
                 cloud_base_url=self._cloud_url.text().strip(),
                 use_voice_separation=self._use_voice_sep.isChecked(),
@@ -482,6 +556,7 @@ def run_app() -> None:
             self._thread.started.connect(self._worker.run)
             self._worker.progress.connect(self._on_progress)
             self._worker.detail.connect(self._log)
+            self._worker.progress_percent.connect(self._progress.setValue)
             self._worker.notes_found.connect(lambda n: self._notes_label.setText(f"音符: {n}"))
             self._worker.voices_found.connect(lambda n: self._voices_label.setText(f"声部: {n}"))
             self._worker.done.connect(self._on_done)
@@ -542,10 +617,18 @@ def events_to_midi_with_hands(
     except ImportError:
         raise RuntimeError("mido 未安装")
 
-    mid = MidiFile()
+    # Type 1 MIDI 支持多轨
+    mid = MidiFile(type=1, ticks_per_beat=480)
 
     left_notes = voice_result.get_left_hand_notes()
     right_notes = voice_result.get_right_hand_notes()
+
+    # Track 0: Tempo track（只包含 set_tempo 和 time_signature）
+    tempo_track = MidiTrack()
+    mid.tracks.append(tempo_track)
+    us_per_beat = 60_000_000 / bpm
+    tempo_track.append(mido.MetaMessage('set_tempo', tempo=int(us_per_beat)))
+    tempo_track.append(mido.MetaMessage('time_signature', numerator=4, denominator=4))
 
     if left_notes:
         left_track = MidiTrack()
@@ -563,11 +646,7 @@ def events_to_midi_with_hands(
 def _append_notes_to_track(track, events: list[NoteEvent], bpm: float, channel: int) -> None:
     import mido
     sorted_events = sorted(events, key=lambda n: n.start_s)
-    us_per_beat = 60_000_000 / bpm
     ticks_per_beat = 480
-
-    track.append(mido.MetaMessage('set_tempo', tempo=int(us_per_beat)))
-    track.append(mido.MetaMessage('time_signature', numerator=4, denominator=4))
 
     messages = []
     for e in sorted_events:
