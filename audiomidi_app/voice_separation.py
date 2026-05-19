@@ -277,7 +277,9 @@ def assign_voices_beam_search(
                     
                     heapq.heappush(new_beam, new_hypothesis)
                     if len(new_beam) > config.beam_width * 2:
-                        heapq.heappop(new_beam)
+                        # 保留 cost 最小的 beam_width 个（heappop 删最小，所以要先 nsmallest 再 heapify）
+                        new_beam = heapq.nsmallest(config.beam_width, new_beam)
+                        heapq.heapify(new_beam)
                 
                 if len(hypothesis.states) < config.max_voices:
                     n_active = sum(1 for v in hypothesis.states if v.is_note_active_at(current_time))

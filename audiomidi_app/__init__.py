@@ -1,28 +1,19 @@
 """
-Audio-to-MIDI API - 简洁的扒谱接口
-
-导出所有便捷函数
+Audio-to-MIDI API - 音频转MIDI接口
 """
 
-from audiomidi_app.api import (
-    # 主要接口
-    transcribe_audio,
-    ModernTranscriber,
-    SimpleTranscriber,
-    TranscribeOptions,
-    
-    # 特定模型接口
-    transcribe_with_piano,
-    transcribe_with_basic_pitch,
-    transcribe_with_demucs,
+from audiomidi_app.transcribe import (
+    available_transcribers,
+    HarmonicSalienceTranscriber,
+    SpectralPeaksTranscriber,
+)
+from audiomidi_app.midi import (
+    events_to_midi,
 )
 
 __all__ = [
-    "transcribe_audio",
-    "ModernTranscriber",
-    "SimpleTranscriber",
-    "TranscribeOptions",
-    "transcribe_with_piano",
-    "transcribe_with_basic_pitch",
-    "transcribe_with_demucs",
+    "available_transcribers",
+    "HarmonicSalienceTranscriber",
+    "SpectralPeaksTranscriber",
+    "events_to_midi",
 ]

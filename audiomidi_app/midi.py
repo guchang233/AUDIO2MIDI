@@ -35,8 +35,9 @@ def events_to_midi(
         start = max(0, s_to_ticks(e.start_s))
         end = max(start + 1, s_to_ticks(e.end_s))
         vel = int(max(1, min(127, e.velocity)))
-        msgs.append((start, mido.Message("note_on", note=e.note, velocity=vel, time=0)))
-        msgs.append((end, mido.Message("note_off", note=e.note, velocity=0, time=0)))
+        channel = getattr(e, 'channel', 0)
+        msgs.append((start, mido.Message("note_on", note=e.note, velocity=vel, channel=channel, time=0)))
+        msgs.append((end, mido.Message("note_off", note=e.note, velocity=0, channel=channel, time=0)))
 
     msgs.sort(key=lambda x: x[0])
 

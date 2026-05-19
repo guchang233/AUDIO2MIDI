@@ -456,9 +456,10 @@ def full_postprocess(
         for e in events
     ]
     
-    events = smooth_velocities_savgol(events, config)
-    
+    # 先归一化，再平滑（避免平滑后的相对关系被归一化破坏）
     events = normalize_velocity_percentile(events)
+    
+    events = smooth_velocities_savgol(events, config)
     
     if config.enable_quantization:
         events = quantize_onsets_gentle(events, bpm, config.quantize_division, threshold=0.15)

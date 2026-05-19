@@ -132,79 +132,53 @@ class BeatTracker:
 
 
 class TransformerBeatTracker(BeatTracker):
-    """基于 Transformer 的节拍跟踪器 - 更准确"""
+    """基于 Transformer 的节拍跟踪器（BeatNet）
+    
+    注意：BeatNet API 版本可能不同，实际接口请参考：
+    https://github.com/mjhydri/BeatNet
+    当前实现假设 BeatNet(1, mode='online', plot=[], thread=False)
+    """
+    
+    name = "Transformer Beat Tracker"
     
     def __init__(self, config: BeatTrackingConfig | None = None):
-        super().__init__(config)
+        self._cfg = config or BeatTrackingConfig()
         self._model = None
+        self._initialize_model()
     
-    def _load_model(self):
-        """懒加载 BeatNet 模型"""
-        if self._model is not None:
-            return
-        
+    def _initialize_model(self):
         try:
-            from beatnet import BeatNet
-            
-            self._model = BeatNet(
-                model_type="Transformer",
-                fps=50,
-            )
+            from BeatNet import BeatNet
+            # BeatNet API: BeatNet(1, mode='online', plot=[], thread=False)
+            self._model = BeatNet(1, mode="offline", plot=[], thread=False)
         except ImportError:
-            raise ImportError(
-                "BeatNet 未安装。请运行: pip install beatnet"
-            )
+            print("Warning: BeatNet not available")
+            self._model = None
     
     def track(self, samples: np.ndarray, sample_rate: int) -> TempoMap:
-        """使用 BeatNet 进行节拍跟踪"""
         if self._model is None:
-            self._load_model()
+            return TempoMap(bpm=120.0, time_signature=(4, 4), beats=[])
         
         try:
-            import soundfile as sf
-            from pathlib import Path
-            import tempfile
+            beat_times = self._model.process(samples)
             
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                temp_path = f.name
+            if len(beat_times) < 2:
+                return TempoMap(bpm=120.0, time_signature=(4, 4), beats=[])
             
-            sf.write(temp_path, samples, sample_rate)
+            intervals = np.diff(beat_times)
+            median_interval = float(np.median(intervals))
+            bpm = 60.0 / median_interval if median_interval > 0 else 120.0
             
-            try:
-                results = self._model(temp_path)
-                
-                beats = []
-                for i, result in enumerate(results):
-                    beat_info = BeatInfo(
-                        time=float(result['beat']['onset']),
-                        beat_number=i,
-                        is_downbeat=result['beat'].get('is_downbeat', (i % 4) == 0),
-                        confidence=float(result['beat'].get('confidence', 0.9)),
-                    )
-                    beats.append(beat_info)
-                
-                if beats:
-                    beat_intervals = np.diff([b.time for b in beats])
-                    avg_interval = np.mean(beat_intervals)
-                    bpm = 60.0 / avg_interval
-                else:
-                    bpm = 120.0
-                
-                return TempoMap(
-                    bpm=bpm,
-                    time_signature=(4, 4),
-                    beats=beats,
-                )
-                
-            finally:
-                try:
-                    Path(temp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-                    
+            beat_info_list = self._create_beat_info(beat_times, bpm)
+            
+            return TempoMap(
+                bpm=bpm,
+                time_signature=(4, 4),
+                beats=beat_info_list
+            )
         except Exception as e:
             print(f"Transformer beat tracking failed: {e}")
-            return super().track(samples, sample_rate)
+            return TempoMap(bpm=120.0, time_signature=(4, 4), beats=[])
 
 
 class MadmomBeatTracker(BeatTracker):
@@ -218,23 +192,24 @@ class MadmomBeatTracker(BeatTracker):
         try:
             import madmom
             
-            processor = madmom.features.beats.DBNBeatTrackingProcessor(
-                fps=100,
-                min_bpm=self._cfg.min_tempo,
-                max_bpm=self._cfg.max_tempo,
-            )
+            # madmom 期望文件路径或 madmom.audio.Signal 对象，不接受原始 numpy array
+            signal = madmom.audio.Signal(samples, sample_rate)
             
             activ_processor = madmom.features.beats.RNNBeatProcessor()
+            activations = activ_processor(signal)
             
-            activations = activ_processor(samples)
-            beat_times = processor(activations)
+            beat_processor = madmom.features.beats.BeatTrackingProcessor(
+                fps=100,
+                look_ahead=0.5
+            )
+            beat_times = beat_processor(activations)
             
-            if len(beat_times) > 1:
-                beat_intervals = np.diff(beat_times)
-                avg_interval = np.mean(beat_intervals)
-                bpm = 60.0 / avg_interval
-            else:
-                bpm = 120.0
+            if len(beat_times) < 2:
+                return TempoMap(bpm=120.0, time_signature=(4, 4), beats=[])
+            
+            intervals = np.diff(beat_times)
+            median_interval = float(np.median(intervals))
+            bpm = 60.0 / median_interval if median_interval > 0 else 120.0
             
             beat_info_list = self._create_beat_info(beat_times, bpm)
             

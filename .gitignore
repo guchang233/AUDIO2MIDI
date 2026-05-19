@@ -5,6 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
+*.pyd
+*.dll
 
 # Distribution / packaging
 .Python
@@ -25,6 +27,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+pip-wheel-metadata/
 
 # PyInstaller
 *.manifest
@@ -53,49 +56,6 @@ cover/
 *.mo
 *.pot
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# PEP 582
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
 # Environments
 .env
 .venv
@@ -108,24 +68,98 @@ venv.bak/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.iml
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swo
+*~
 
-# Test audio and MIDI files
-test_chord.wav
-test_chord.mid
-test_optimization.py
+# Audio and MIDI files
 *.wav
-!requirements.txt
-
-# Generated MIDI
+*.flac
+*.ogg
+*.mp3
+*.m4a
+*.aac
+*.wma
 *.mid
+*.midi
+*.kar
+
+# Generated output files
+output/
+results/
+exports/
 
 # Temporary files
 /tmp/
 *.tmp
+*.temp
+temp_mt3/
+temp/
+
+# Model checkpoints and weights
+mt3_checkpoints/
+checkpoints/
+models/
+*.ckpt
+*.pth
+*.pt
+*.h5
+*.pb
+*.onnx
+*.tflite
+*.safetensors
+
+# Cache directories
+demucs_cache/
+.cache/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Logs
+logs/
+*.log
+
+# Local configuration
+config.local.yaml
+config.local.yml
+config.local.json
+settings.local.py
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Trae IDE
+.trae/
+
+# Python type checking
+.mypy_cache/
+.dmypy.json
+
+# Profiling data
+*.prof
+*.lprof

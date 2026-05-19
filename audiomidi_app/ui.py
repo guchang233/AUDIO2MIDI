@@ -10,7 +10,6 @@ from audiomidi_app.cloud_client import CloudConfig, transcribe_via_cloud
 from audiomidi_app.midi import NoteEvent, events_to_midi
 from audiomidi_app.transcribe import (
     available_transcribers,
-    try_basic_pitch_transcriber,
     available_voice_separation_transcribers,
     VoiceSeparationTranscriber,
 )
@@ -127,17 +126,6 @@ def run_app() -> None:
             if self._interrupted:
                 return ""
 
-            if self._cfg.engine == "Basic Pitch":
-                self.progress.emit("🎹 运行 Basic Pitch")
-                self.detail.emit(f"[{self._time()}] 加载 Basic Pitch 模型...")
-                bp = try_basic_pitch_transcriber()
-                if bp is None or not hasattr(bp, "transcribe_file"):
-                    raise RuntimeError("当前环境未安装 basic-pitch 或不兼容")
-                midi_path = bp.transcribe_file(str(audio_path), out_dir=str(out_dir))
-                if Path(midi_path) != out_path:
-                    out_path.write_bytes(Path(midi_path).read_bytes())
-                return str(out_path)
-
             self.progress.emit("📊 分析音频")
             self.detail.emit(f"[{self._time()}] 读取音频文件...")
             audio = read_audio(audio_path, target_sr=None, mono=True)
@@ -149,6 +137,7 @@ def run_app() -> None:
             self.progress.emit(f"🎵 生成音符（{self._cfg.engine}）")
             self.detail.emit(f"[{self._time()}] 启动引擎: {self._cfg.engine}")
             
+            # 使用传统引擎
             transcribers = available_transcribers()
             transcriber: Any = None
             for t in transcribers:
