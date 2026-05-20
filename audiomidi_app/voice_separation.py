@@ -395,19 +395,8 @@ def chord_grouping_advanced(
         time_diff = note.start_s - last_note.start_s
         
         in_time_range = time_diff <= config.chord_time_threshold
-        
-        min_pitch = min(n.note for n in current_group)
-        max_pitch = max(n.note for n in current_group)
-        avg_pitch = np.mean([n.note for n in current_group])
-        pitch_spread = max_pitch - min_pitch
-        note_pitch_diff = abs(note.note - avg_pitch)
-        
-        in_pitch_range = (
-            note_pitch_diff <= config.chord_pitch_threshold and 
-            pitch_spread <= config.chord_pitch_threshold
-        )
-        
-        if in_time_range and in_pitch_range:
+
+        if in_time_range:
             current_group.append(note)
         else:
             groups.append(current_group)

@@ -41,8 +41,12 @@ def read_audio(
         if normalize_mode == "rms":
             rms = float(np.sqrt(np.mean(data ** 2)))
             if rms > 1e-6:
-                data = data * (0.1 / rms)
-                data = np.clip(data, -1.0, 1.0).astype(np.float32, copy=False)
+                target_rms = 0.1
+                data = data * (target_rms / rms)
+                peak = float(np.max(np.abs(data)))
+                if peak > 0.99:
+                    data = np.tanh(data) * 0.99
+                data = data.astype(np.float32, copy=False)
         else:
             peak = np.max(np.abs(data))
             if peak > 1e-6:

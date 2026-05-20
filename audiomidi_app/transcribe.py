@@ -568,7 +568,7 @@ def merge_overlaps(events: list[NoteEvent]) -> list[NoteEvent]:
         es.sort(key=lambda x: x.start_s)
         cur = es[0]
         for nxt in es[1:]:
-            if nxt.start_s < cur.end_s - 0.01:
+            if nxt.start_s < cur.start_s + 0.020:
                 cur = NoteEvent(
                     note=note,
                     start_s=cur.start_s,
@@ -603,33 +603,23 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
 
         def __init__(self):
             from piano_transcription_inference import PianoTranscription
-            self._model = PianoTranscription(device="cpu")
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else \
+                         "mps" if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() else "cpu"
+            except Exception:
+                device = "cpu"
+            print(f"[Piano Transcription] 使用设备: {device}")
+            self._model = PianoTranscription(device=device)
             self._pedal_config = PedalConfig()
 
         def _transcribe_segment(self, audio_arr: np.ndarray, sample_rate_out: int) -> tuple[list[NoteEvent], list[dict]]:
-            import tempfile
-            import soundfile as sf
-            from pathlib import Path
+            result = self._model.transcribe(audio_arr, midi_path=None)
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, mode="wb") as f:
-                temp_wav = f.name
+            note_list = result.get("notes") or result.get("est_note_events") or []
+            pedal_list = result.get("pedals") or result.get("est_pedal_events") or []
 
-            try:
-                sf.write(temp_wav, audio_arr, sample_rate_out)
-                arr, sr = sf.read(temp_wav, dtype="float32")
-                if arr.ndim > 1:
-                    arr = arr.mean(axis=1)
-                result = self._model.transcribe(arr, midi_path=None)
-
-                note_list = result.get("notes") or result.get("est_note_events") or []
-                pedal_list = result.get("pedals") or result.get("est_pedal_events") or []
-
-                return note_list, pedal_list
-            finally:
-                try:
-                    Path(temp_wav).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            return note_list, pedal_list
 
         def transcribe(self, samples: np.ndarray, sample_rate_in: int) -> list[NoteEvent]:
             import soundfile as sf
@@ -730,8 +720,7 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
     class _BasicPitchTranscriber:
         name = "Basic Pitch"
 
-        def __init__(self):
-            # Use ONNX model path instead of TensorFlow (TF 2.16+ incompatible with old saved models)
+        def __init__(self, onset_threshold: float = 0.35, frame_threshold: float = 0.20):
             from pathlib import Path
             tf_model_path = Path(ICASSP_2022_MODEL_PATH)
             onnx_model_path = tf_model_path.parent / "nmp.onnx"
@@ -739,6 +728,8 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
                 self._model_path = str(onnx_model_path)
             else:
                 self._model_path = ICASSP_2022_MODEL_PATH
+            self._onset_threshold = onset_threshold
+            self._frame_threshold = frame_threshold
 
         def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
             import tempfile
@@ -750,7 +741,15 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
 
             try:
                 sf.write(temp_wav, samples, sample_rate)
-                model_output, midi_data, note_events = predict(temp_wav, self._model_path)
+                model_output, midi_data, note_events = predict(
+                    temp_wav,
+                    self._model_path,
+                    onset_threshold=self._onset_threshold,
+                    frame_threshold=self._frame_threshold,
+                    minimum_note_length=50,
+                    minimum_frequency=27.5,
+                    maximum_frequency=4186.0,
+                )
 
                 events = []
                 for note in note_events:
@@ -786,20 +785,53 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
     return _BasicPitchTranscriber()
 
 
+class EnsembleTranscriber:
+    name = "Ensemble (PT + BP)"
+
+    def __init__(self, pt, bp):
+        self._pt = pt
+        self._bp = bp
+
+    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+        pt_events = self._pt.transcribe(samples, sample_rate)
+        bp_events = self._bp.transcribe(samples, sample_rate)
+
+        PITCH_TOL = 0
+        TIME_TOL = 0.08
+
+        pt_lookup: dict[int, list[NoteEvent]] = {}
+        for e in pt_events:
+            pt_lookup.setdefault(e.note, []).append(e)
+
+        added = []
+        for bp_note in bp_events:
+            pt_candidates = pt_lookup.get(bp_note.note, [])
+            is_duplicate = any(
+                abs(bp_note.start_s - pt.start_s) <= TIME_TOL
+                for pt in pt_candidates
+            )
+            if not is_duplicate:
+                added.append(bp_note)
+
+        combined = pt_events + added
+        combined.sort(key=lambda e: (e.start_s, e.note))
+        return combined
+
+
 def available_transcribers() -> list[Transcriber]:
     transcribers: list[Transcriber] = []
 
-    # Try PianoTranscription first, but only if fully working
     pt = try_piano_transcription_transcriber()
     if pt is not None:
         transcribers.append(pt)
 
-    # Try BasicPitch
     bp = try_basic_pitch_transcriber()
     if bp is not None:
         transcribers.append(bp)
 
-    # Always include DSP transcribers (they're guaranteed to work!)
+    if pt is not None and bp is not None:
+        transcribers.append(EnsembleTranscriber(pt, bp))
+
     transcribers.extend([
         HarmonicSalienceTranscriber(),
         SpectralPeaksTranscriber(),

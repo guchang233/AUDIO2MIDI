@@ -65,174 +65,219 @@ class JobConfig:
     preemphasis_audio: bool = False
     velocity_stretch: bool = True
     confidence_threshold: float = 0.2
+    bp_onset_threshold: float = 0.35
+    bp_frame_threshold: float = 0.20
 
 
 def _apply_stylesheet(app: QApplication) -> None:
     app.setStyleSheet("""
         QMainWindow {
-            background-color: #f5f5f5;
+            background-color: #f8fafc;
         }
+        
+        QWidget {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 12px;
+            color: #1e293b;
+        }
+        
         QGroupBox {
+            font-size: 13px;
             font-weight: bold;
-            border: 1px solid #d0d0d0;
-            border-radius: 6px;
-            margin-top: 12px;
-            padding: 14px 10px 10px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-top: 14px;
+            padding: 16px 12px 12px 12px;
             background-color: #ffffff;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
+            subcontrol-position: top left;
             left: 12px;
-            padding: 0 6px;
-            color: #333333;
-        }
-        QTabWidget::pane {
-            border: 1px solid #d0d0d0;
-            border-radius: 4px;
+            padding: 0 8px;
+            color: #2563eb;
             background-color: #ffffff;
         }
+        
+        QTabWidget::pane {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background-color: #ffffff;
+            top: -1px;
+        }
         QTabBar::tab {
-            padding: 7px 18px;
-            margin-right: 2px;
-            border: 1px solid #d0d0d0;
+            padding: 8px 18px;
+            margin-right: 4px;
+            border: 1px solid #e2e8f0;
             border-bottom: none;
-            border-top-left-radius: 5px;
-            border-top-right-radius: 5px;
-            background-color: #e8e8e8;
-            color: #555555;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+            background-color: #f1f5f9;
+            color: #64748b;
+            font-weight: 500;
         }
         QTabBar::tab:selected {
             background-color: #ffffff;
-            color: #1a73e8;
+            color: #2563eb;
             font-weight: bold;
-            border-bottom: 2px solid #1a73e8;
+            border-bottom: 2px solid #2563eb;
         }
         QTabBar::tab:hover:!selected {
-            background-color: #f0f0f0;
+            background-color: #e2e8f0;
+            color: #0f172a;
         }
+        
         QPushButton {
-            padding: 7px 16px;
-            border: 1px solid #c0c0c0;
-            border-radius: 5px;
-            background-color: #fafafa;
-            color: #333333;
+            padding: 6px 16px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background-color: #ffffff;
+            color: #334155;
+            font-weight: 500;
         }
         QPushButton:hover {
-            background-color: #e8e8e8;
-            border-color: #a0a0a0;
+            background-color: #f8fafc;
+            border-color: #94a3b8;
+            color: #0f172a;
         }
         QPushButton:pressed {
-            background-color: #d0d0d0;
+            background-color: #f1f5f9;
+            border-color: #64748b;
         }
         QPushButton:disabled {
-            background-color: #f0f0f0;
-            color: #aaaaaa;
-            border-color: #d8d8d8;
+            background-color: #f1f5f9;
+            color: #94a3b8;
+            border-color: #e2e8f0;
         }
+        
         QPushButton#runBtn {
-            background-color: #1a73e8;
+            background-color: #2563eb;
             color: #ffffff;
-            border: none;
+            border: 1px solid #1d4ed8;
+            border-radius: 6px;
             font-size: 13px;
             font-weight: bold;
             padding: 10px 24px;
-            border-radius: 6px;
         }
         QPushButton#runBtn:hover {
-            background-color: #1565c0;
+            background-color: #1d4ed8;
+            border-color: #1e40af;
         }
         QPushButton#runBtn:pressed {
-            background-color: #0d47a1;
+            background-color: #1e40af;
         }
         QPushButton#runBtn:disabled {
-            background-color: #90caf9;
+            background-color: #93c5fd;
+            border-color: #93c5fd;
             color: #ffffff;
         }
+        
         QPushButton#stopBtn {
-            background-color: #e53935;
+            background-color: #ef4444;
             color: #ffffff;
-            border: none;
+            border: 1px solid #dc2626;
+            border-radius: 6px;
             font-size: 13px;
             font-weight: bold;
             padding: 10px 24px;
-            border-radius: 6px;
         }
         QPushButton#stopBtn:hover {
-            background-color: #c62828;
+            background-color: #dc2626;
+            border-color: #b91c1c;
         }
         QPushButton#stopBtn:pressed {
-            background-color: #b71c1c;
+            background-color: #b91c1c;
         }
         QPushButton#stopBtn:disabled {
-            background-color: #ef9a9a;
+            background-color: #fca5a5;
+            border-color: #fca5a5;
             color: #ffffff;
         }
-        QLineEdit {
-            padding: 6px 10px;
-            border: 1px solid #c0c0c0;
-            border-radius: 4px;
+        
+        QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
+            padding: 6px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
             background-color: #ffffff;
+            color: #1e293b;
+            selection-background-color: #2563eb;
+            selection-color: #ffffff;
         }
-        QLineEdit:focus {
-            border-color: #1a73e8;
+        QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {
+            border-color: #2563eb;
         }
-        QComboBox {
-            padding: 6px 10px;
-            border: 1px solid #c0c0c0;
-            border-radius: 4px;
-            background-color: #ffffff;
-        }
-        QComboBox:focus {
-            border-color: #1a73e8;
-        }
-        QDoubleSpinBox, QSpinBox {
-            padding: 5px 8px;
-            border: 1px solid #c0c0c0;
-            border-radius: 4px;
-            background-color: #ffffff;
-        }
+        
         QProgressBar {
-            border: 1px solid #d0d0d0;
-            border-radius: 5px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
             text-align: center;
-            background-color: #e8e8e8;
-            height: 22px;
+            background-color: #f1f5f9;
+            height: 24px;
+            font-weight: bold;
+            color: #1e293b;
         }
         QProgressBar::chunk {
-            background-color: #1a73e8;
-            border-radius: 4px;
+            background-color: #3b82f6;
+            border-radius: 5px;
         }
+        
         QTextEdit {
-            border: 1px solid #d0d0d0;
-            border-radius: 4px;
-            background-color: #fafbfc;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 11px;
+            padding: 8px;
         }
+        
         QCheckBox {
-            spacing: 6px;
-            color: #333333;
+            spacing: 8px;
+            color: #334155;
+            font-weight: 500;
         }
         QCheckBox::indicator {
             width: 16px;
             height: 16px;
-            border-radius: 3px;
-            border: 1px solid #a0a0a0;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
             background-color: #ffffff;
         }
-        QCheckBox::indicator:checked {
-            background-color: #1a73e8;
-            border-color: #1a73e8;
+        QCheckBox::indicator:hover {
+            border-color: #94a3b8;
         }
+        QCheckBox::indicator:checked {
+            background-color: #2563eb;
+            border-color: #2563eb;
+        }
+        QCheckBox::indicator:disabled {
+            border-color: #e2e8f0;
+            background-color: #f1f5f9;
+        }
+        
         QLabel {
-            color: #333333;
+            color: #334155;
         }
         QLabel#statsLabel {
-            color: #666666;
+            color: #64748b;
             font-size: 12px;
+            font-weight: 500;
         }
         QLabel#statusLabel {
             font-size: 13px;
+            font-weight: 500;
+            color: #1e293b;
+        }
+        QFrame#statusFrame {
+            background-color: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+        }
+        QWidget#headerBanner {
+            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #eff6ff, stop:1 #dbeafe);
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            margin-bottom: 2px;
         }
     """)
 
@@ -356,7 +401,7 @@ def run_app() -> None:
             self.progress.emit("📊 分析音频 (1/4)")
             self.progress_percent.emit(15)
             self.detail.emit(f"[{self._time()}] 读取音频文件...")
-            is_neural_engine = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch")
+            is_neural_engine = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch", "Ensemble (PT + BP)")
             audio = read_audio(
                 audio_path, target_sr=None, mono=True,
                 normalize=self._cfg.normalize_audio,
@@ -393,6 +438,13 @@ def run_app() -> None:
             if transcriber is None:
                 raise RuntimeError(f"找不到引擎：{self._cfg.engine}")
 
+            if hasattr(transcriber, '_onset_threshold') and hasattr(transcriber, '_frame_threshold'):
+                transcriber._onset_threshold = self._cfg.bp_onset_threshold
+                transcriber._frame_threshold = self._cfg.bp_frame_threshold
+            if hasattr(transcriber, '_bp') and hasattr(transcriber._bp, '_onset_threshold'):
+                transcriber._bp._onset_threshold = self._cfg.bp_onset_threshold
+                transcriber._bp._frame_threshold = self._cfg.bp_frame_threshold
+
             if self._interrupted:
                 return ""
 
@@ -418,7 +470,7 @@ def run_app() -> None:
             )
             onset_detector = OnsetDetector(audio.sample_rate)
             onset_detector.detect(audio.samples)
-            is_neural = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch")
+            is_neural = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch", "Ensemble (PT + BP)")
             events = full_postprocess(
                 events,
                 samples=audio.samples,
@@ -503,8 +555,36 @@ def run_app() -> None:
             root = QWidget()
             self.setCentralWidget(root)
             main_layout = QVBoxLayout(root)
-            main_layout.setContentsMargins(12, 12, 12, 12)
-            main_layout.setSpacing(10)
+            main_layout.setContentsMargins(16, 16, 16, 16)
+            main_layout.setSpacing(12)
+
+            # Elegant modern header banner at the top of Main Layout
+            header_widget = QWidget()
+            header_widget.setObjectName("headerBanner")
+            header_layout = QHBoxLayout(header_widget)
+            header_layout.setContentsMargins(16, 12, 16, 12)
+            header_layout.setSpacing(12)
+            
+            logo_label = QLabel("🎵")
+            logo_label.setStyleSheet("font-size: 24px;")
+            
+            title_layout = QVBoxLayout()
+            title_layout.setSpacing(2)
+            
+            app_title = QLabel("Audio → MIDI Conversion Studio")
+            app_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1e3a8a;")
+            
+            app_desc = QLabel("High-fidelity audio feature extraction and note transcription assistant")
+            app_desc.setStyleSheet("font-size: 11px; color: #64748b;")
+            
+            title_layout.addWidget(app_title)
+            title_layout.addWidget(app_desc)
+            
+            header_layout.addWidget(logo_label)
+            header_layout.addLayout(title_layout)
+            header_layout.addStretch()
+            
+            main_layout.addWidget(header_widget)
 
             file_group = QGroupBox("文件")
             file_layout = QFormLayout()
@@ -595,6 +675,20 @@ def run_app() -> None:
             self._confidence_threshold.setValue(0.2)
             self._confidence_threshold.setFixedWidth(80)
             postprocess_layout.addRow("音符置信度阈值", self._confidence_threshold)
+            self._bp_onset_threshold = QDoubleSpinBox()
+            self._bp_onset_threshold.setRange(0.1, 0.9)
+            self._bp_onset_threshold.setSingleStep(0.05)
+            self._bp_onset_threshold.setDecimals(2)
+            self._bp_onset_threshold.setValue(0.35)
+            self._bp_onset_threshold.setFixedWidth(80)
+            postprocess_layout.addRow("Onset 阈值（Basic Pitch）", self._bp_onset_threshold)
+            self._bp_frame_threshold = QDoubleSpinBox()
+            self._bp_frame_threshold.setRange(0.1, 0.9)
+            self._bp_frame_threshold.setSingleStep(0.05)
+            self._bp_frame_threshold.setDecimals(2)
+            self._bp_frame_threshold.setValue(0.20)
+            self._bp_frame_threshold.setFixedWidth(80)
+            postprocess_layout.addRow("Frame 阈值（Basic Pitch）", self._bp_frame_threshold)
             postprocess_group.setLayout(postprocess_layout)
             transcribe_layout.addRow(postprocess_group)
 
@@ -727,15 +821,34 @@ def run_app() -> None:
             self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self._status.setContentsMargins(4, 4, 4, 4)
             status_frame = QFrame()
-            status_frame.setFrameShape(QFrame.StyledPanel)
-            status_frame.setFrameShadow(QFrame.Sunken)
+            status_frame.setObjectName("statusFrame")
+            status_frame.setFrameShape(QFrame.NoFrame)
             status_layout = QVBoxLayout(status_frame)
-            status_layout.setContentsMargins(8, 6, 8, 6)
+            status_layout.setContentsMargins(12, 10, 12, 10)
             status_layout.addWidget(self._status)
             main_layout.addWidget(status_frame)
 
         def _log(self, msg: str) -> None:
-            self._log_text.append(msg)
+            # Escape HTML characters to avoid issues, then add color styles based on content
+            escaped_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            
+            # Formulate the message based on keywords or symbols
+            if "✅" in msg:
+                html_msg = f"<span style='color: #4ade80;'>{escaped_msg}</span>"
+            elif "❌" in msg or "错误:" in msg or "失败:" in msg:
+                html_msg = f"<span style='color: #f87171;'>{escaped_msg}</span>"
+            elif "⚠️" in msg:
+                html_msg = f"<span style='color: #fca5a5;'>{escaped_msg}</span>"
+            elif "🚀" in msg or "====== " in msg:
+                html_msg = f"<span style='color: #38bdf8; font-weight: bold;'>{escaped_msg}</span>"
+            elif "[stdout]" in msg:
+                html_msg = f"<span style='color: #94a3b8;'>{escaped_msg}</span>"
+            elif "连接云端:" in msg or "启动引擎:" in msg:
+                html_msg = f"<span style='color: #60a5fa;'>{escaped_msg}</span>"
+            else:
+                html_msg = f"<span style='color: #cbd5e1;'>{escaped_msg}</span>"
+                
+            self._log_text.append(html_msg)
             self._log_text.moveCursor(QTextCursor.MoveOperation.End)
             self._log_text.ensureCursorVisible()
 
@@ -844,6 +957,8 @@ def run_app() -> None:
                 preemphasis_audio=self._preemphasis.isChecked(),
                 velocity_stretch=self._velocity_stretch.isChecked(),
                 confidence_threshold=self._confidence_threshold.value(),
+                bp_onset_threshold=self._bp_onset_threshold.value(),
+                bp_frame_threshold=self._bp_frame_threshold.value(),
             )
 
             self._set_ui_running(True)

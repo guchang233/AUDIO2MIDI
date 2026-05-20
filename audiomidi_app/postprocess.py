@@ -54,8 +54,8 @@ class OnsetDetector:
                 post_max=3,
                 pre_avg=3,
                 post_avg=5,
-                delta=0.07,
-                wait=10,
+                delta=0.05,
+                wait=4,
             ).tolist()
             
             self._onset_set = {round(t, 3) for t in self._onset_times}
