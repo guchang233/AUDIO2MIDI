@@ -19,7 +19,7 @@ from audiomidi_app.voice_separation import separate_voices, VoiceSeparationResul
 
 _qt_import_error: Exception | None = None
 try:
-    from PySide6.QtCore import QObject, Qt, QThread, Signal, QTimer
+    from PySide6.QtCore import QObject, Qt, QThread, Signal, QTimer, QSize
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -27,12 +27,14 @@ try:
         QDoubleSpinBox,
         QFileDialog,
         QFormLayout,
+        QFrame,
         QHBoxLayout,
         QLabel,
         QLineEdit,
         QMainWindow,
         QProgressBar,
         QPushButton,
+        QSizePolicy,
         QSpinBox,
         QTabWidget,
         QVBoxLayout,
@@ -41,7 +43,7 @@ try:
         QScrollArea,
         QTextEdit,
     )
-    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QTextCursor
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QTextCursor, QColor, QPalette
 except Exception as e:
     _qt_import_error = e
 
@@ -63,6 +65,176 @@ class JobConfig:
     preemphasis_audio: bool = False
     velocity_stretch: bool = True
     confidence_threshold: float = 0.2
+
+
+def _apply_stylesheet(app: QApplication) -> None:
+    app.setStyleSheet("""
+        QMainWindow {
+            background-color: #f5f5f5;
+        }
+        QGroupBox {
+            font-weight: bold;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            margin-top: 12px;
+            padding: 14px 10px 10px 10px;
+            background-color: #ffffff;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 6px;
+            color: #333333;
+        }
+        QTabWidget::pane {
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            background-color: #ffffff;
+        }
+        QTabBar::tab {
+            padding: 7px 18px;
+            margin-right: 2px;
+            border: 1px solid #d0d0d0;
+            border-bottom: none;
+            border-top-left-radius: 5px;
+            border-top-right-radius: 5px;
+            background-color: #e8e8e8;
+            color: #555555;
+        }
+        QTabBar::tab:selected {
+            background-color: #ffffff;
+            color: #1a73e8;
+            font-weight: bold;
+            border-bottom: 2px solid #1a73e8;
+        }
+        QTabBar::tab:hover:!selected {
+            background-color: #f0f0f0;
+        }
+        QPushButton {
+            padding: 7px 16px;
+            border: 1px solid #c0c0c0;
+            border-radius: 5px;
+            background-color: #fafafa;
+            color: #333333;
+        }
+        QPushButton:hover {
+            background-color: #e8e8e8;
+            border-color: #a0a0a0;
+        }
+        QPushButton:pressed {
+            background-color: #d0d0d0;
+        }
+        QPushButton:disabled {
+            background-color: #f0f0f0;
+            color: #aaaaaa;
+            border-color: #d8d8d8;
+        }
+        QPushButton#runBtn {
+            background-color: #1a73e8;
+            color: #ffffff;
+            border: none;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 10px 24px;
+            border-radius: 6px;
+        }
+        QPushButton#runBtn:hover {
+            background-color: #1565c0;
+        }
+        QPushButton#runBtn:pressed {
+            background-color: #0d47a1;
+        }
+        QPushButton#runBtn:disabled {
+            background-color: #90caf9;
+            color: #ffffff;
+        }
+        QPushButton#stopBtn {
+            background-color: #e53935;
+            color: #ffffff;
+            border: none;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 10px 24px;
+            border-radius: 6px;
+        }
+        QPushButton#stopBtn:hover {
+            background-color: #c62828;
+        }
+        QPushButton#stopBtn:pressed {
+            background-color: #b71c1c;
+        }
+        QPushButton#stopBtn:disabled {
+            background-color: #ef9a9a;
+            color: #ffffff;
+        }
+        QLineEdit {
+            padding: 6px 10px;
+            border: 1px solid #c0c0c0;
+            border-radius: 4px;
+            background-color: #ffffff;
+        }
+        QLineEdit:focus {
+            border-color: #1a73e8;
+        }
+        QComboBox {
+            padding: 6px 10px;
+            border: 1px solid #c0c0c0;
+            border-radius: 4px;
+            background-color: #ffffff;
+        }
+        QComboBox:focus {
+            border-color: #1a73e8;
+        }
+        QDoubleSpinBox, QSpinBox {
+            padding: 5px 8px;
+            border: 1px solid #c0c0c0;
+            border-radius: 4px;
+            background-color: #ffffff;
+        }
+        QProgressBar {
+            border: 1px solid #d0d0d0;
+            border-radius: 5px;
+            text-align: center;
+            background-color: #e8e8e8;
+            height: 22px;
+        }
+        QProgressBar::chunk {
+            background-color: #1a73e8;
+            border-radius: 4px;
+        }
+        QTextEdit {
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            background-color: #fafbfc;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+        }
+        QCheckBox {
+            spacing: 6px;
+            color: #333333;
+        }
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            border: 1px solid #a0a0a0;
+            background-color: #ffffff;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #1a73e8;
+            border-color: #1a73e8;
+        }
+        QLabel {
+            color: #333333;
+        }
+        QLabel#statsLabel {
+            color: #666666;
+            font-size: 12px;
+        }
+        QLabel#statusLabel {
+            font-size: 13px;
+        }
+    """)
 
 
 def run_app() -> None:
@@ -151,7 +323,7 @@ def run_app() -> None:
             out_dir = Path(self._cfg.out_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / audio_path.with_suffix(".mid").name
-            
+
             self.detail.emit(f"[{self._time()}] 📁 输入文件: {audio_path}")
             self.detail.emit(f"[{self._time()}] 📁 输出目录: {out_dir}")
             self.detail.emit(f"[{self._time()}] 🎯 输出文件: {out_path.name}")
@@ -210,15 +382,14 @@ def run_app() -> None:
             self.progress.emit(f"🎵 生成音符 (2/4) - {self._cfg.engine}")
             self.progress_percent.emit(35)
             self.detail.emit(f"[{self._time()}] 启动引擎: {self._cfg.engine}")
-            
-            # 使用传统引擎
+
             transcribers = available_transcribers()
             transcriber: Any = None
             for t in transcribers:
                 if t.name == self._cfg.engine:
                     transcriber = t
                     break
-            
+
             if transcriber is None:
                 raise RuntimeError(f"找不到引擎：{self._cfg.engine}")
 
@@ -237,7 +408,6 @@ def run_app() -> None:
                 self.detail.emit(f"[{self._time()}]    音符跨度: {duration_range:.2f} 秒")
             self.progress_percent.emit(50)
 
-            # 后处理：onset精调、重复音合并、velocity归一化、平滑等
             self.progress.emit("🔧 后处理 (3/5)")
             self.progress_percent.emit(55)
             self.detail.emit(f"[{self._time()}] 后处理中...")
@@ -263,8 +433,6 @@ def run_app() -> None:
             self.progress_percent.emit(60)
 
             from audiomidi_app.diagnostics import print_transcription_report
-            import io
-            import sys
             buf = io.StringIO()
             old_stdout = sys.stdout
             sys.stdout = buf
@@ -287,7 +455,7 @@ def run_app() -> None:
                 self.voices_found.emit(n_voices)
                 self.detail.emit(f"[{self._time()}] ✅ 声部分离完成")
                 self.detail.emit(f"[{self._time()}]    分离出 {n_voices} 个声部")
-                
+
                 left_notes = voice_result.get_left_hand_notes() if voice_result else []
                 right_notes = voice_result.get_right_hand_notes() if voice_result else []
                 self.detail.emit(f"[{self._time()}]    左手: {len(left_notes)} 音符")
@@ -298,7 +466,7 @@ def run_app() -> None:
             self.progress.emit("💾 写入MIDI (4/4)")
             self.progress_percent.emit(85)
             self.detail.emit(f"[{self._time()}] 生成 MIDI 文件...")
-            
+
             if voice_result and self._cfg.split_hands:
                 self.detail.emit(f"[{self._time()}] 左右手分轨输出")
                 self.detail.emit(f"[{self._time()}]    左手 Channel: {self._cfg.left_hand_channel}")
@@ -311,7 +479,7 @@ def run_app() -> None:
                 )
             else:
                 mid = events_to_midi(events, bpm=bpm)
-            
+
             mid.save(str(out_path))
             file_size = out_path.stat().st_size
             self.progress_percent.emit(95)
@@ -324,7 +492,7 @@ def run_app() -> None:
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle("Audio → MIDI (高级版)")
+            self.setWindowTitle("Audio → MIDI")
             self.setAcceptDrops(True)
             self._setup_ui()
 
@@ -335,16 +503,21 @@ def run_app() -> None:
             root = QWidget()
             self.setCentralWidget(root)
             main_layout = QVBoxLayout(root)
+            main_layout.setContentsMargins(12, 12, 12, 12)
+            main_layout.setSpacing(10)
 
-            # 顶部：文件选择区域
             file_group = QGroupBox("文件")
             file_layout = QFormLayout()
+            file_layout.setContentsMargins(12, 18, 12, 12)
+            file_layout.setSpacing(8)
 
             self._audio_path = QLineEdit()
             self._audio_path.setPlaceholderText("拖拽音频文件到此处或点击选择")
             pick_audio = QPushButton("选择音频")
+            pick_audio.setFixedWidth(90)
             pick_audio.clicked.connect(self._on_pick_audio)
             row_audio = QHBoxLayout()
+            row_audio.setSpacing(6)
             row_audio.addWidget(self._audio_path, 1)
             row_audio.addWidget(pick_audio)
             file_layout.addRow("音频输入", row_audio)
@@ -352,8 +525,10 @@ def run_app() -> None:
             self._out_path = QLineEdit()
             self._out_path.setPlaceholderText("选择MIDI输出文件夹")
             pick_out = QPushButton("选择文件夹")
+            pick_out.setFixedWidth(90)
             pick_out.clicked.connect(self._on_pick_out)
             row_out = QHBoxLayout()
+            row_out.setSpacing(6)
             row_out.addWidget(self._out_path, 1)
             row_out.addWidget(pick_out)
             file_layout.addRow("输出文件夹", row_out)
@@ -361,12 +536,12 @@ def run_app() -> None:
             file_group.setLayout(file_layout)
             main_layout.addWidget(file_group)
 
-            # 标签页
             tabs = QTabWidget()
 
-            # 转谱设置
             tab_transcribe = QWidget()
             transcribe_layout = QFormLayout(tab_transcribe)
+            transcribe_layout.setContentsMargins(12, 16, 12, 12)
+            transcribe_layout.setSpacing(8)
 
             self._engine = QComboBox()
             for t in available_transcribers():
@@ -374,22 +549,33 @@ def run_app() -> None:
             self._engine.currentIndexChanged.connect(self._on_engine_changed)
             transcribe_layout.addRow("转谱引擎", self._engine)
 
+            bpm_row = QHBoxLayout()
+            bpm_row.setSpacing(8)
             self._bpm = QDoubleSpinBox()
             self._bpm.setRange(30.0, 400.0)
             self._bpm.setSingleStep(1.0)
             self._bpm.setDecimals(2)
             self._bpm.setValue(120.0)
-            transcribe_layout.addRow("BPM", self._bpm)
+            self._bpm.setFixedWidth(90)
+            bpm_row.addWidget(self._bpm)
+            self._auto_bpm = QCheckBox("自动检测")
+            bpm_row.addWidget(self._auto_bpm)
+            bpm_row.addStretch()
+            transcribe_layout.addRow("BPM", bpm_row)
 
-            self._auto_bpm = QCheckBox("自动检测BPM")
-            transcribe_layout.addRow("", self._auto_bpm)
+            sep1 = QFrame()
+            sep1.setFrameShape(QFrame.HLine)
+            sep1.setFrameShadow(QFrame.Sunken)
+            transcribe_layout.addRow(sep1)
 
             preprocess_group = QGroupBox("音频预处理")
             preprocess_layout = QVBoxLayout()
+            preprocess_layout.setContentsMargins(12, 18, 12, 8)
+            preprocess_layout.setSpacing(6)
             self._normalize = QCheckBox("响度归一化")
             self._normalize.setChecked(True)
             preprocess_layout.addWidget(self._normalize)
-            self._preemphasis = QCheckBox("预加重滤波（改善清晰度）")
+            self._preemphasis = QCheckBox("预加重滤波（改善清晰度，仅 DSP 引擎）")
             self._preemphasis.setChecked(False)
             preprocess_layout.addWidget(self._preemphasis)
             preprocess_group.setLayout(preprocess_layout)
@@ -397,6 +583,8 @@ def run_app() -> None:
 
             postprocess_group = QGroupBox("后处理")
             postprocess_layout = QFormLayout()
+            postprocess_layout.setContentsMargins(12, 18, 12, 12)
+            postprocess_layout.setSpacing(6)
             self._velocity_stretch = QCheckBox("Velocity 归一化（仅 DSP 引擎）")
             self._velocity_stretch.setChecked(True)
             postprocess_layout.addRow("", self._velocity_stretch)
@@ -405,15 +593,17 @@ def run_app() -> None:
             self._confidence_threshold.setSingleStep(0.05)
             self._confidence_threshold.setDecimals(2)
             self._confidence_threshold.setValue(0.2)
+            self._confidence_threshold.setFixedWidth(80)
             postprocess_layout.addRow("音符置信度阈值", self._confidence_threshold)
             postprocess_group.setLayout(postprocess_layout)
             transcribe_layout.addRow(postprocess_group)
 
             tabs.addTab(tab_transcribe, "转谱")
 
-            # 声部分离
             tab_voice = QWidget()
             voice_layout = QVBoxLayout(tab_voice)
+            voice_layout.setContentsMargins(12, 16, 12, 12)
+            voice_layout.setSpacing(8)
 
             self._use_voice_sep = QCheckBox("启用声部分离")
             self._use_voice_sep.setChecked(False)
@@ -422,24 +612,33 @@ def run_app() -> None:
 
             voice_options = QGroupBox("声部分离选项")
             voice_options_layout = QFormLayout()
+            voice_options_layout.setContentsMargins(12, 18, 12, 12)
             voice_options_layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+            voice_options_layout.setSpacing(6)
 
             self._split_hands = QCheckBox("左右手分离")
             self._split_hands.setEnabled(False)
             self._split_hands.setChecked(True)
             voice_options_layout.addRow("", self._split_hands)
 
+            ch_row = QHBoxLayout()
+            ch_row.setSpacing(16)
             self._left_channel = QSpinBox()
             self._left_channel.setRange(1, 16)
             self._left_channel.setValue(1)
             self._left_channel.setEnabled(False)
-            voice_options_layout.addRow("左手Channel", self._left_channel)
-
+            self._left_channel.setFixedWidth(60)
             self._right_channel = QSpinBox()
             self._right_channel.setRange(1, 16)
             self._right_channel.setValue(2)
             self._right_channel.setEnabled(False)
-            voice_options_layout.addRow("右手Channel", self._right_channel)
+            self._right_channel.setFixedWidth(60)
+            ch_row.addWidget(QLabel("左手 Ch"))
+            ch_row.addWidget(self._left_channel)
+            ch_row.addWidget(QLabel("右手 Ch"))
+            ch_row.addWidget(self._right_channel)
+            ch_row.addStretch()
+            voice_options_layout.addRow(ch_row)
 
             voice_options.setLayout(voice_options_layout)
             voice_layout.addWidget(voice_options)
@@ -447,9 +646,10 @@ def run_app() -> None:
 
             tabs.addTab(tab_voice, "声部分离")
 
-            # 云端选项
             tab_cloud = QWidget()
             cloud_layout = QFormLayout(tab_cloud)
+            cloud_layout.setContentsMargins(12, 16, 12, 12)
+            cloud_layout.setSpacing(8)
 
             self._cloud = QCheckBox("云端优先（失败自动回退本地）")
             self._cloud.stateChanged.connect(self._on_cloud_toggled)
@@ -461,73 +661,78 @@ def run_app() -> None:
 
             tabs.addTab(tab_cloud, "云端")
 
-            # 日志页面
             tab_log = QWidget()
             log_layout = QVBoxLayout(tab_log)
-            
+            log_layout.setContentsMargins(6, 6, 6, 6)
+            log_layout.setSpacing(4)
+
             log_header = QHBoxLayout()
-            log_header.addWidget(QLabel("运行日志"))
+            log_header.setSpacing(8)
+            log_title = QLabel("运行日志")
+            log_title.setStyleSheet("font-weight: bold; font-size: 13px;")
+            log_header.addWidget(log_title)
             self._clear_log_btn = QPushButton("清空")
-            self._clear_log_btn.setMaximumWidth(60)
+            self._clear_log_btn.setFixedSize(50, 26)
             self._clear_log_btn.clicked.connect(self._on_clear_log)
             log_header.addWidget(self._clear_log_btn)
             log_header.addStretch()
             log_layout.addLayout(log_header)
-            
+
             self._log_text = QTextEdit()
             self._log_text.setReadOnly(True)
             self._log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
             log_layout.addWidget(self._log_text)
-            
-            tabs.addTab(tab_log, "📋 日志")
+
+            tabs.addTab(tab_log, "日志")
 
             main_layout.addWidget(tabs, 1)
 
-            # 按钮
             btn_row = QHBoxLayout()
+            btn_row.setSpacing(12)
             self._run = QPushButton("开始转谱")
-            self._run.setMinimumHeight(40)
-            font = self._run.font()
-            font.setPointSize(11)
-            font.setBold(True)
-            self._run.setFont(font)
+            self._run.setObjectName("runBtn")
+            self._run.setMinimumHeight(42)
             self._run.clicked.connect(self._on_run)
             btn_row.addWidget(self._run)
 
             self._stop = QPushButton("停止")
+            self._stop.setObjectName("stopBtn")
             self._stop.setEnabled(False)
-            self._stop.setMinimumHeight(40)
+            self._stop.setMinimumHeight(42)
             self._stop.clicked.connect(self._on_stop)
             btn_row.addWidget(self._stop)
             main_layout.addLayout(btn_row)
 
-            # 进度
             self._progress = QProgressBar()
             self._progress.setVisible(False)
             self._progress.setRange(0, 100)
             self._progress.setTextVisible(True)
-            self._progress.setFormat("%p% - %v/100")
+            self._progress.setFormat("%p%")
+            self._progress.setFixedHeight(20)
             main_layout.addWidget(self._progress)
 
-            # 统计栏
             stats_layout = QHBoxLayout()
+            stats_layout.setSpacing(20)
             self._notes_label = QLabel("音符: -")
+            self._notes_label.setObjectName("statsLabel")
             self._voices_label = QLabel("声部: -")
+            self._voices_label.setObjectName("statsLabel")
             stats_layout.addWidget(self._notes_label)
             stats_layout.addWidget(self._voices_label)
             stats_layout.addStretch()
             main_layout.addLayout(stats_layout)
 
-            # 状态栏
-            status_group = QGroupBox("状态")
-            status_layout = QVBoxLayout()
-
             self._status = QLabel("就绪")
+            self._status.setObjectName("statusLabel")
             self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self._status.setContentsMargins(4, 4, 4, 4)
+            status_frame = QFrame()
+            status_frame.setFrameShape(QFrame.StyledPanel)
+            status_frame.setFrameShadow(QFrame.Sunken)
+            status_layout = QVBoxLayout(status_frame)
+            status_layout.setContentsMargins(8, 6, 8, 6)
             status_layout.addWidget(self._status)
-
-            status_group.setLayout(status_layout)
-            main_layout.addWidget(status_group)
+            main_layout.addWidget(status_frame)
 
         def _log(self, msg: str) -> None:
             self._log_text.append(msg)
@@ -555,7 +760,6 @@ def run_app() -> None:
                     ext = Path(path).suffix.lower()
                     if ext in ['.wav', '.flac', '.ogg', '.mp3', '.m4a']:
                         self._audio_path.setText(path)
-                        # 自动设置输出目录为音频文件所在目录
                         audio_dir = str(Path(path).parent)
                         if not self._out_path.text().strip():
                             self._out_path.setText(audio_dir)
@@ -576,15 +780,14 @@ def run_app() -> None:
 
         def _on_pick_audio(self) -> None:
             path, _ = QFileDialog.getOpenFileName(
-                self, 
-                "选择音频", 
-                "", 
+                self,
+                "选择音频",
+                "",
                 "Audio (*.wav *.flac *.ogg *.mp3 *.m4a);;All (*)"
             )
             if not path:
                 return
             self._audio_path.setText(path)
-            # 自动设置输出目录为音频文件所在目录
             audio_dir = str(Path(path).parent)
             if not self._out_path.text().strip():
                 self._out_path.setText(audio_dir)
@@ -697,7 +900,7 @@ def run_app() -> None:
 
         def _cleanup_thread(self) -> None:
             self._set_ui_running(False)
-            
+
             if self._worker is not None:
                 self._worker.deleteLater()
             if self._thread is not None:
@@ -706,8 +909,9 @@ def run_app() -> None:
             self._worker = None
 
     app = QApplication([])
+    _apply_stylesheet(app)
     w = MainWindow()
-    w.resize(800, 600)
+    w.resize(780, 620)
     w.show()
     app.exec()
 
@@ -724,13 +928,11 @@ def events_to_midi_with_hands(
     except ImportError:
         raise RuntimeError("mido 未安装")
 
-    # Type 1 MIDI 支持多轨
     mid = MidiFile(type=1, ticks_per_beat=480)
 
     left_notes = voice_result.get_left_hand_notes()
     right_notes = voice_result.get_right_hand_notes()
 
-    # Track 0: Tempo track（只包含 set_tempo 和 time_signature）
     tempo_track = MidiTrack()
     mid.tracks.append(tempo_track)
     us_per_beat = 60_000_000 / bpm
