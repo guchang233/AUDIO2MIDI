@@ -59,6 +59,10 @@ class JobConfig:
     split_hands: bool
     left_hand_channel: int
     right_hand_channel: int
+    normalize_audio: bool = True
+    preemphasis_audio: bool = False
+    velocity_stretch: bool = True
+    confidence_threshold: float = 0.2
 
 
 def run_app() -> None:
@@ -180,7 +184,13 @@ def run_app() -> None:
             self.progress.emit("📊 分析音频 (1/4)")
             self.progress_percent.emit(15)
             self.detail.emit(f"[{self._time()}] 读取音频文件...")
-            audio = read_audio(audio_path, target_sr=None, mono=True)
+            is_neural_engine = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch")
+            audio = read_audio(
+                audio_path, target_sr=None, mono=True,
+                normalize=self._cfg.normalize_audio,
+                normalize_mode="rms" if is_neural_engine else "peak",
+                preemphasis=self._cfg.preemphasis_audio and not is_neural_engine,
+            )
             duration = len(audio.samples) / audio.sample_rate
             self.detail.emit(f"[{self._time()}] ✅ 音频加载完成")
             self.detail.emit(f"[{self._time()}]    采样率: {audio.sample_rate} Hz")
@@ -232,6 +242,10 @@ def run_app() -> None:
             self.progress_percent.emit(55)
             self.detail.emit(f"[{self._time()}] 后处理中...")
             from audiomidi_app.postprocess import full_postprocess, PostProcessConfig, OnsetDetector
+            pp_config = PostProcessConfig(
+                confidence_threshold=self._cfg.confidence_threshold,
+                enable_velocity_normalize=self._cfg.velocity_stretch,
+            )
             onset_detector = OnsetDetector(audio.sample_rate)
             onset_detector.detect(audio.samples)
             is_neural = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch")
@@ -241,11 +255,26 @@ def run_app() -> None:
                 sample_rate=audio.sample_rate,
                 bpm=bpm,
                 onset_detector=onset_detector,
+                config=pp_config,
                 is_neural=is_neural,
             )
             self.detail.emit(f"[{self._time()}] ✅ 后处理完成")
             self.detail.emit(f"[{self._time()}]    剩余 {len(events)} 个音符")
             self.progress_percent.emit(60)
+
+            from audiomidi_app.diagnostics import print_transcription_report
+            import io
+            import sys
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                print_transcription_report(events, duration)
+            finally:
+                sys.stdout = old_stdout
+            for line in buf.getvalue().strip().split("\n"):
+                if line:
+                    self.detail.emit(f"[{self._time()}] {line}")
 
             voice_result: VoiceSeparationResult | None = None
 
@@ -354,6 +383,31 @@ def run_app() -> None:
 
             self._auto_bpm = QCheckBox("自动检测BPM")
             transcribe_layout.addRow("", self._auto_bpm)
+
+            preprocess_group = QGroupBox("音频预处理")
+            preprocess_layout = QVBoxLayout()
+            self._normalize = QCheckBox("响度归一化")
+            self._normalize.setChecked(True)
+            preprocess_layout.addWidget(self._normalize)
+            self._preemphasis = QCheckBox("预加重滤波（改善清晰度）")
+            self._preemphasis.setChecked(False)
+            preprocess_layout.addWidget(self._preemphasis)
+            preprocess_group.setLayout(preprocess_layout)
+            transcribe_layout.addRow(preprocess_group)
+
+            postprocess_group = QGroupBox("后处理")
+            postprocess_layout = QFormLayout()
+            self._velocity_stretch = QCheckBox("Velocity 归一化（仅 DSP 引擎）")
+            self._velocity_stretch.setChecked(True)
+            postprocess_layout.addRow("", self._velocity_stretch)
+            self._confidence_threshold = QDoubleSpinBox()
+            self._confidence_threshold.setRange(0.0, 1.0)
+            self._confidence_threshold.setSingleStep(0.05)
+            self._confidence_threshold.setDecimals(2)
+            self._confidence_threshold.setValue(0.2)
+            postprocess_layout.addRow("音符置信度阈值", self._confidence_threshold)
+            postprocess_group.setLayout(postprocess_layout)
+            transcribe_layout.addRow(postprocess_group)
 
             tabs.addTab(tab_transcribe, "转谱")
 
@@ -583,6 +637,10 @@ def run_app() -> None:
                 split_hands=self._split_hands.isChecked(),
                 left_hand_channel=self._left_channel.value(),
                 right_hand_channel=self._right_channel.value(),
+                normalize_audio=self._normalize.isChecked(),
+                preemphasis_audio=self._preemphasis.isChecked(),
+                velocity_stretch=self._velocity_stretch.isChecked(),
+                confidence_threshold=self._confidence_threshold.value(),
             )
 
             self._set_ui_running(True)

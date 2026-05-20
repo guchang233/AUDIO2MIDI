@@ -26,6 +26,10 @@ class PostProcessConfig:
     harmonic_confidence_factor: float = 0.7
     harmonic_order: int = 6
 
+    confidence_threshold: float = 0.2
+
+    enable_velocity_normalize: bool = True
+
 
 class OnsetDetector:
     """统一 onset 检测器"""
@@ -154,7 +158,7 @@ def refine_onsets_from_global_detector(
         
         nearby_onset = onset_detector.find_nearby_onset(
             onset_time,
-            threshold=0.04,
+            threshold=0.015,
         )
 
         if nearby_onset is not None:
@@ -473,12 +477,12 @@ def full_postprocess(
         for e in events
     ]
 
-    events = normalize_velocity_percentile(events)
+    if config.enable_velocity_normalize:
+        events = normalize_velocity_percentile(events)
 
     events = smooth_velocities_savgol(events, config)
 
-    confidence_threshold = 0.35
-    events = [e for e in events if e.confidence >= confidence_threshold]
+    events = [e for e in events if e.confidence >= config.confidence_threshold]
 
     if config.enable_quantization:
         events = quantize_onsets_gentle(events, bpm, config.quantize_division, threshold=0.15)

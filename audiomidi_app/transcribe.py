@@ -606,10 +606,33 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
             self._model = PianoTranscription(device="cpu")
             self._pedal_config = PedalConfig()
 
-        def transcribe(self, samples: np.ndarray, sample_rate_in: int) -> list[NoteEvent]:
+        def _transcribe_segment(self, audio_arr: np.ndarray, sample_rate_out: int) -> tuple[list[NoteEvent], list[dict]]:
             import tempfile
             import soundfile as sf
             from pathlib import Path
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, mode="wb") as f:
+                temp_wav = f.name
+
+            try:
+                sf.write(temp_wav, audio_arr, sample_rate_out)
+                arr, sr = sf.read(temp_wav, dtype="float32")
+                if arr.ndim > 1:
+                    arr = arr.mean(axis=1)
+                result = self._model.transcribe(arr, midi_path=None)
+
+                note_list = result.get("notes") or result.get("est_note_events") or []
+                pedal_list = result.get("pedals") or result.get("est_pedal_events") or []
+
+                return note_list, pedal_list
+            finally:
+                try:
+                    Path(temp_wav).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        def transcribe(self, samples: np.ndarray, sample_rate_in: int) -> list[NoteEvent]:
+            import soundfile as sf
             from piano_transcription_inference import sample_rate as PT_SR
 
             if sample_rate_in != PT_SR:
@@ -618,43 +641,76 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                 samples_resampled = resample_poly(samples, PT_SR // g, sample_rate_in // g).astype(np.float32)
                 sample_rate_out = PT_SR
             else:
-                samples_resampled = samples
+                samples_resampled = samples.astype(np.float32, copy=False)
                 sample_rate_out = sample_rate_in
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, mode="wb") as f:
-                temp_wav = f.name
+            rms = float(np.sqrt(np.mean(samples_resampled ** 2)))
+            if rms < 0.001:
+                print(f"[Piano Transcription] 音频 RMS={rms:.6f} 过低，跳过")
+                return []
 
-            try:
-                sf.write(temp_wav, samples_resampled, sample_rate_out)
-                audio_arr, sr = sf.read(temp_wav, dtype="float32")
-                if audio_arr.ndim > 1:
-                    audio_arr = audio_arr.mean(axis=1)
-                result = self._model.transcribe(audio_arr, midi_path=None)
+            duration = len(samples_resampled) / sample_rate_out
+            segment_len = 150
+            overlap = 10
 
-                note_list = result.get("notes") or result.get("est_note_events") or []
-                pedal_list = result.get("pedals") or result.get("est_pedal_events") or []
+            if duration <= 180:
+                note_list, pedal_list = self._transcribe_segment(samples_resampled, sample_rate_out)
+            else:
+                print(f"[Piano Transcription] 长音频 {duration:.1f}s，分段处理")
+                note_list = []
+                pedal_list = []
+                start = 0.0
+                seg_idx = 0
+                while start < duration:
+                    end = min(start + segment_len, duration)
+                    s0 = int(start * sample_rate_out)
+                    s1 = int(end * sample_rate_out)
+                    seg_audio = samples_resampled[s0:s1]
 
-                events = []
-                for note_info in note_list:
-                    vel = int(np.clip(note_info.get("velocity", 64), 1, 127))
-                    events.append(NoteEvent(
-                        note=int(note_info["midi_note"]),
-                        start_s=float(note_info["onset_time"]),
-                        end_s=float(note_info["offset_time"]),
-                        velocity=vel,
-                        confidence=1.0,
-                    ))
+                    seg_notes, seg_pedals = self._transcribe_segment(seg_audio, sample_rate_out)
 
-                pedal_events = pedal_list
+                    offset = start
+                    for n in seg_notes:
+                        n["onset_time"] = float(n.get("onset_time", 0)) + offset
+                        n["offset_time"] = float(n.get("offset_time", 0)) + offset
+                    for p in seg_pedals:
+                        for k_on, k_off in [("onset_time", "offset_time"), ("start_time", "end_time"), ("on_time", "off_time")]:
+                            if k_on in p:
+                                p[k_on] = float(p[k_on]) + offset
+                            if k_off in p:
+                                p[k_off] = float(p[k_off]) + offset
 
-                events = apply_pedal_correction(events, pedal_events, self._pedal_config)
+                    if seg_idx > 0:
+                        overlap_start = start
+                        note_list = [
+                            n for n in note_list
+                            if float(n.get("offset_time", n.get("end_time", 0))) <= overlap_start
+                        ]
+                        pedal_list = [
+                            p for p in pedal_list
+                            if float(p.get("offset_time", p.get("end_time", p.get("off_time", 0)))) <= overlap_start
+                        ]
 
-                return events
-            finally:
-                try:
-                    Path(temp_wav).unlink(missing_ok=True)
-                except Exception:
-                    pass
+                    note_list.extend(seg_notes)
+                    pedal_list.extend(seg_pedals)
+
+                    start += segment_len - overlap
+                    seg_idx += 1
+
+            events = []
+            for note_info in note_list:
+                vel = int(np.clip(note_info.get("velocity", 64), 1, 127))
+                events.append(NoteEvent(
+                    note=int(note_info["midi_note"]),
+                    start_s=float(note_info["onset_time"]),
+                    end_s=float(note_info["offset_time"]),
+                    velocity=vel,
+                    confidence=1.0,
+                ))
+
+            events = apply_pedal_correction(events, pedal_list, self._pedal_config)
+            events.sort(key=lambda e: (e.start_s, e.note))
+            return events
 
     # Try to actually instantiate to be 100% sure!
     try:
@@ -705,8 +761,14 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
                         end_time = note.end_time
                         pitch = note.pitch
                         amplitude = note.amplitude
-                    raw_vel = float(amplitude)
-                    velocity = int(np.clip(raw_vel ** 0.5 * 127, 1, 127))
+                    raw = float(amplitude)
+                    if raw >= 0.8:
+                        velocity = int(100 + (raw - 0.8) / 0.2 * 27)
+                    elif raw >= 0.4:
+                        velocity = int(50 + (raw - 0.4) / 0.4 * 50)
+                    else:
+                        velocity = int(raw / 0.4 * 50)
+                    velocity = int(np.clip(velocity, 1, 127))
                     events.append(NoteEvent(
                         note=int(pitch),
                         start_s=float(start_time),
