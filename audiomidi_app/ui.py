@@ -359,7 +359,7 @@ def run_app() -> None:
 
             if self._cfg.cloud_enabled:
                 try:
-                    self.progress.emit("云端分布式算力处理中")
+                    self.progress.emit("云端处理中")
                     self.detail.emit(f"[{self._time()}] 连接云端节点: {self._cfg.cloud_base_url}")
                     midi_bytes = transcribe_via_cloud(
                         CloudConfig(base_url=self._cfg.cloud_base_url),
@@ -368,17 +368,17 @@ def run_app() -> None:
                         bpm=self._cfg.bpm,
                     )
                     out_path.write_bytes(midi_bytes)
-                    self.detail.emit(f"[{self._time()}] ✅ 云端计算完成并成功下载")
+                    self.detail.emit(f"[{self._time()}] ✅ 云端完成")
                     return str(out_path)
                 except Exception as e:
-                    self.detail.emit(f"[{self._time()}] ⚠️ 云端集群异常: {e}")
-                    self.progress.emit(f"触发无缝本地回退")
-                    self.detail.emit(f"[{self._time()}] 正在调度本地硬件资源重算...")
+                    self.detail.emit(f"[{self._time()}] ⚠️ 云端错误: {e}")
+                    self.progress.emit("回退本地处理")
+                    self.detail.emit(f"[{self._time()}] 使用本地处理...")
 
             if self._interrupted:
                 return ""
 
-            self.progress.emit("音频特征分析中 (1/4)")
+            self.progress.emit("分析音频 (1/4)")
             self.progress_percent.emit(15)
             is_neural_engine = self._cfg.engine in ("Piano Transcription (Neural)", "Basic Pitch", "Ensemble (PT + BP)")
             audio = read_audio(
@@ -399,7 +399,7 @@ def run_app() -> None:
             if self._interrupted:
                 return ""
 
-            self.progress.emit(f"模型特征解码中 (2/4) - {self._cfg.engine}")
+            self.progress.emit(f"模型推理中 (2/4) - {self._cfg.engine}")
             self.progress_percent.emit(35)
 
             transcribers = available_transcribers()
@@ -422,9 +422,16 @@ def run_app() -> None:
             if self._interrupted:
                 return ""
 
-            events = transcriber.transcribe(audio.samples, audio.sample_rate)
+            def _segment_progress(seg_idx: int, total_segments: int) -> None:
+                if total_segments <= 1:
+                    return
+                segment_progress = (seg_idx + 1) / total_segments * 15
+                self.progress_percent.emit(35 + int(segment_progress))
+                self.progress.emit(f"模型特征解码中 (2/4) - {self._cfg.engine} [{seg_idx+1}/{total_segments}]")
+
+            events = transcriber.transcribe(audio.samples, audio.sample_rate, progress_callback=_segment_progress)
             self.notes_found.emit(len(events))
-            self.detail.emit(f"[{self._time()}] ✅ 原始序列捕获完毕，共测得节点点位: {len(events)}")
+            self.detail.emit(f"[{self._time()}] ✅ 音符检测完成: {len(events)} 个")
             self.progress_percent.emit(50)
 
             self.progress.emit("执行数据后处理优化 (3/5)")
@@ -473,7 +480,7 @@ def run_app() -> None:
             else:
                 self.progress_percent.emit(75)
 
-            self.progress.emit("正在编译导出通用MIDI序列 (4/4)")
+            self.progress.emit("导出MIDI (4/4)")
             self.progress_percent.emit(85)
 
             if voice_result and self._cfg.split_hands:
@@ -495,7 +502,7 @@ def run_app() -> None:
         def __init__(self) -> None:
             super().__init__()
             # 💡 【原生窗口标题汉化】
-            self.setWindowTitle("音频特征转谱工作台 (Audio → MIDI)")
+            self.setWindowTitle("音频转MIDI")
             self.setAcceptDrops(True)
             self._setup_ui()
 
@@ -535,10 +542,17 @@ def run_app() -> None:
             pick_out = QPushButton("浏览...")
             pick_out.setFixedWidth(54)
             pick_out.clicked.connect(self._on_pick_out)
+            
+            open_folder = QPushButton("📂")
+            open_folder.setFixedWidth(28)
+            open_folder.setToolTip("打开输出目录")
+            open_folder.clicked.connect(self._on_open_output_folder)
+            
             row_out = QHBoxLayout()
             row_out.setSpacing(4)
             row_out.addWidget(self._out_path, 1)
             row_out.addWidget(pick_out)
+            row_out.addWidget(open_folder)
             file_layout.addRow("输出路径", row_out)
 
             main_layout.addWidget(file_panel)
@@ -574,11 +588,11 @@ def run_app() -> None:
             bpm_row.addStretch()
             transcribe_layout.addRow("速度 (BPM)", bpm_row)
 
-            preprocess_group = QGroupBox("音频预处理控制")
+            preprocess_group = QGroupBox("预处理")
             preprocess_layout = QVBoxLayout()
             preprocess_layout.setContentsMargins(4, 8, 4, 2)
             preprocess_layout.setSpacing(5)
-            self._normalize = QCheckBox("激活音量动态增益归一化 (Normalize)")
+            self._normalize = QCheckBox("音量归一化")
             self._normalize.setChecked(True)
             preprocess_layout.addWidget(self._normalize)
             self._preemphasis = QCheckBox("开启高频数字预加重滤波器")
@@ -601,7 +615,7 @@ def run_app() -> None:
             self._confidence_threshold.setRange(0.0, 1.0)
             self._confidence_threshold.setValue(0.2)
             self._confidence_threshold.setMinimumWidth(65)
-            postprocess_layout.addRow("过滤基准置信度", self._confidence_threshold)
+            postprocess_layout.addRow("置信度阈值", self._confidence_threshold)
             
             self._bp_onset_threshold = QDoubleSpinBox()
             self._bp_onset_threshold.setRange(0.1, 0.9)
@@ -619,7 +633,7 @@ def run_app() -> None:
 
             tabs.addTab(tab_transcribe, "参数配置")
 
-            # 页面 2: 声部分离映射
+            # 页面 2: 声部分离
             tab_voice = QWidget()
             tab_voice.setStyleSheet("background-color: #121212;")
             voice_layout = QVBoxLayout(tab_voice)
@@ -630,7 +644,7 @@ def run_app() -> None:
             self._use_voice_sep.stateChanged.connect(self._on_voice_sep_toggled)
             voice_layout.addWidget(self._use_voice_sep)
 
-            voice_options = QGroupBox("通道矩阵映射")
+            voice_options = QGroupBox("通道设置")
             voice_options_layout = QFormLayout()
             voice_options_layout.setContentsMargins(4, 8, 4, 2)
             voice_options_layout.setVerticalSpacing(6)
@@ -667,7 +681,7 @@ def run_app() -> None:
 
             tabs.addTab(tab_voice, "声部分离")
 
-            # 页面 3: 云端分布式计算
+            # 页面 3: 云端
             tab_cloud = QWidget()
             tab_cloud.setStyleSheet("background-color: #121212;")
             cloud_layout = QFormLayout(tab_cloud)
@@ -675,17 +689,17 @@ def run_app() -> None:
             cloud_layout.setVerticalSpacing(6)
             cloud_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-            self._cloud = QCheckBox("优先调度云端分布式算力（失败自动回退本地推理）")
+            self._cloud = QCheckBox("优先云端（失败回退本地）")
             self._cloud.stateChanged.connect(self._on_cloud_toggled)
             cloud_layout.addRow("", self._cloud)
 
             self._cloud_url = QLineEdit("http://127.0.0.1:8000")
             self._cloud_url.setEnabled(False)
-            cloud_layout.addRow("节点网关地址", self._cloud_url)
+            cloud_layout.addRow("云端地址", self._cloud_url)
 
-            tabs.addTab(tab_cloud, "云端加速")
+            tabs.addTab(tab_cloud, "云端")
 
-            # 页面 4: 极简终端日志
+            # 页面 4: 日志
             tab_log = QWidget()
             tab_log.setStyleSheet("background-color: #050505;")
             log_layout = QVBoxLayout(tab_log)
@@ -730,7 +744,7 @@ def run_app() -> None:
             actions_row = QHBoxLayout()
             actions_row.setSpacing(6)
 
-            self._run = QPushButton("执行音频转谱编译")
+            self._run = QPushButton("开始转谱")
             self._run.setObjectName("runBtn")
             self._run.setFixedHeight(30)
             self._run.clicked.connect(self._on_run)
@@ -744,7 +758,7 @@ def run_app() -> None:
             self._stop.clicked.connect(self._on_stop)
             actions_row.addWidget(self._stop)
 
-            self._notes_label = QLabel("捕获音符: -")
+            self._notes_label = QLabel("捕获捕获音符: -")
             self._notes_label.setObjectName("statsLabel")
             self._voices_label = QLabel("声部分离: -")
             self._voices_label.setObjectName("statsLabel")
@@ -828,6 +842,17 @@ def run_app() -> None:
             if path:
                 self._out_path.setText(path)
 
+        def _on_open_output_folder(self) -> None:
+            path = self._out_path.text().strip()
+            if not path or not Path(path).exists():
+                return
+            import os
+            if os.name == 'nt':
+                os.startfile(path)
+            else:
+                import subprocess
+                subprocess.run(['xdg-open', path])
+
         def _set_ui_running(self, running: bool) -> None:
             self._run.setEnabled(not running)
             self._stop.setEnabled(running)
@@ -870,11 +895,11 @@ def run_app() -> None:
             )
 
             self._set_ui_running(True)
-            self._status.setText("任务管线正在准备中...")
-            self._notes_label.setText("捕获音符: -")
+            self._status.setText("准备中...")
+            self._notes_label.setText("音符: -")
             self._voices_label.setText("声部分离: -")
             self._log_text.clear()
-            self._log(f"====== 执行转谱任务: {cfg.engine} | 基准BPM: {cfg.bpm} ======")
+            self._log(f"====== 开始转谱: {cfg.engine} | BPM: {cfg.bpm} ======")
 
             self._thread = QThread()
             self._worker = Worker(cfg)
@@ -883,7 +908,7 @@ def run_app() -> None:
             self._worker.progress.connect(self._on_progress)
             self._worker.detail.connect(self._log)
             self._worker.progress_percent.connect(self._progress.setValue)
-            self._worker.notes_found.connect(lambda n: self._notes_label.setText(f"捕获音符: {n}"))
+            self._worker.notes_found.connect(lambda n: self._notes_label.setText(f"音符: {n}"))
             self._worker.voices_found.connect(lambda n: self._voices_label.setText(f"声部分离: {n}"))
             self._worker.done.connect(self._on_done)
             self._worker.failed.connect(self._on_failed)
@@ -908,14 +933,14 @@ def run_app() -> None:
 
         def _on_done(self, out_path: str) -> None:
             if out_path:
-                self._log("====== 编译管线成功结束 ======")
-                self._status.setText("✅ 转谱编译成功")
+                self._log("====== 任务完成 ======")
+                self._status.setText("✅ 转谱完成")
             else:
-                self._status.setText("⏹ 任务已安全中止")
+                self._status.setText("⏹ 任务已停止")
 
         def _on_failed(self, msg: str) -> None:
-            self._log(f"❌ 触发严重运行时异常: {msg}")
-            self._status.setText("❌ 运行失败")
+            self._log(f"❌ 运行错误: {msg}")
+            self._status.setText("❌ 失败")
 
         def _cleanup_thread(self) -> None:
             self._set_ui_running(False)

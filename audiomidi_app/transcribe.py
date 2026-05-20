@@ -22,7 +22,7 @@ class Transcriber(Protocol):
     @property
     def name(self) -> str: ...
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]: ...
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]: ...
 
 
 @dataclass(frozen=True)
@@ -255,7 +255,7 @@ class SpectralPeaksTranscriber:
     def __init__(self, config: SpectralPeaksConfig | None = None) -> None:
         self._cfg = config or SpectralPeaksConfig()
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
         x = samples.astype(np.float32, copy=False)
         if x.ndim != 1:
             x = x.mean(axis=-1)
@@ -388,7 +388,7 @@ class HarmonicSalienceTranscriber:
     def __init__(self, config: HarmonicSalienceConfig | None = None) -> None:
         self._cfg = config or HarmonicSalienceConfig()
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
         x = samples.astype(np.float32, copy=False)
         if x.ndim != 1:
             x = x.mean(axis=-1)
@@ -621,7 +621,7 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
 
             return note_list, pedal_list
 
-        def transcribe(self, samples: np.ndarray, sample_rate_in: int) -> list[NoteEvent]:
+        def transcribe(self, samples: np.ndarray, sample_rate_in: int, progress_callback=None) -> list[NoteEvent]:
             import soundfile as sf
             from piano_transcription_inference import sample_rate as PT_SR
 
@@ -651,11 +651,19 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                 pedal_list = []
                 start = 0.0
                 seg_idx = 0
+                
+                total_segments = int((duration + segment_len - overlap - 1) / (segment_len - overlap)) + 1
+                
                 while start < duration:
                     end = min(start + segment_len, duration)
                     s0 = int(start * sample_rate_out)
                     s1 = int(end * sample_rate_out)
                     seg_audio = samples_resampled[s0:s1]
+
+                    print(f"[Piano Transcription] Segment {seg_idx} / {total_segments - 1}")
+                    
+                    if progress_callback:
+                        progress_callback(seg_idx, total_segments)
 
                     seg_notes, seg_pedals = self._transcribe_segment(seg_audio, sample_rate_out)
 
@@ -731,7 +739,7 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
             self._onset_threshold = onset_threshold
             self._frame_threshold = frame_threshold
 
-        def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+        def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
             import tempfile
             import soundfile as sf
             from pathlib import Path
@@ -792,7 +800,7 @@ class EnsembleTranscriber:
         self._pt = pt
         self._bp = bp
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
         pt_events = self._pt.transcribe(samples, sample_rate)
         bp_events = self._bp.transcribe(samples, sample_rate)
 
@@ -877,7 +885,7 @@ class VoiceSeparationTranscriber:
     def name(self) -> str:
         return self._name
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
         events = self._base.transcribe(samples, sample_rate)
         result = separate_voices(events, self._voice_config)
         all_notes: list[NoteEvent] = []
