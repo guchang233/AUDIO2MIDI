@@ -22,7 +22,7 @@ class Transcriber(Protocol):
     @property
     def name(self) -> str: ...
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]: ...
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]: ...
 
 
 @dataclass(frozen=True)
@@ -255,7 +255,7 @@ class SpectralPeaksTranscriber:
     def __init__(self, config: SpectralPeaksConfig | None = None) -> None:
         self._cfg = config or SpectralPeaksConfig()
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
         x = samples.astype(np.float32, copy=False)
         if x.ndim != 1:
             x = x.mean(axis=-1)
@@ -388,7 +388,7 @@ class HarmonicSalienceTranscriber:
     def __init__(self, config: HarmonicSalienceConfig | None = None) -> None:
         self._cfg = config or HarmonicSalienceConfig()
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
         x = samples.astype(np.float32, copy=False)
         if x.ndim != 1:
             x = x.mean(axis=-1)
@@ -621,7 +621,7 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
 
             return note_list, pedal_list
 
-        def transcribe(self, samples: np.ndarray, sample_rate_in: int, progress_callback=None) -> list[NoteEvent]:
+        def transcribe(self, samples: np.ndarray, sample_rate_in: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
             import soundfile as sf
             from piano_transcription_inference import sample_rate as PT_SR
 
@@ -655,6 +655,21 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                 total_segments = int((duration + segment_len - overlap - 1) / (segment_len - overlap)) + 1
                 
                 while start < duration:
+                    if interrupt_check and interrupt_check():
+                        print("[Piano Transcription] 收到中断信号，停止分段处理")
+                        events = []
+                        for note_info in note_list:
+                            vel = int(np.clip(note_info.get("velocity", 64), 1, 127))
+                            events.append(NoteEvent(
+                                note=int(note_info["midi_note"]),
+                                start_s=float(note_info["onset_time"]),
+                                end_s=float(note_info["offset_time"]),
+                                velocity=vel,
+                                confidence=1.0,
+                            ))
+                        events = apply_pedal_correction(events, pedal_list, self._pedal_config)
+                        events.sort(key=lambda e: (e.start_s, e.note))
+                        return events
                     end = min(start + segment_len, duration)
                     s0 = int(start * sample_rate_out)
                     s1 = int(end * sample_rate_out)
@@ -739,7 +754,7 @@ def try_basic_pitch_transcriber() -> Transcriber | None:
             self._onset_threshold = onset_threshold
             self._frame_threshold = frame_threshold
 
-        def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
+        def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
             import tempfile
             import soundfile as sf
             from pathlib import Path
@@ -800,9 +815,11 @@ class EnsembleTranscriber:
         self._pt = pt
         self._bp = bp
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
-        pt_events = self._pt.transcribe(samples, sample_rate)
-        bp_events = self._bp.transcribe(samples, sample_rate)
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
+        pt_events = self._pt.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
+        if interrupt_check and interrupt_check():
+            return pt_events
+        bp_events = self._bp.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
 
         PITCH_TOL = 0
         TIME_TOL = 0.08
@@ -885,8 +902,8 @@ class VoiceSeparationTranscriber:
     def name(self) -> str:
         return self._name
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None) -> list[NoteEvent]:
-        events = self._base.transcribe(samples, sample_rate)
+    def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
+        events = self._base.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
         result = separate_voices(events, self._voice_config)
         all_notes: list[NoteEvent] = []
         for voice in result.voices:
@@ -909,6 +926,7 @@ def batch_transcribe(
     engine_name: str,
     cfg: dict | None = None,
     progress_callback=None,
+    interrupt_check=None,
 ) -> list[str]:
     from audiomidi_app.audio import read_audio
     from audiomidi_app.midi import events_to_midi
@@ -939,6 +957,8 @@ def batch_transcribe(
     results: list[str] = []
     total = len(items)
     for idx, item in enumerate(items):
+        if interrupt_check and interrupt_check():
+            break
         if progress_callback:
             progress_callback(idx, total, item.audio_path)
 
@@ -953,7 +973,7 @@ def batch_transcribe(
         if (cfg or {}).get("auto_bpm", False):
             bpm = detect_bpm(audio.samples, audio.sample_rate)
 
-        events = transcriber.transcribe(audio.samples, audio.sample_rate)
+        events = transcriber.transcribe(audio.samples, audio.sample_rate, interrupt_check=interrupt_check)
 
         onset_detector = OnsetDetector(audio.sample_rate)
         onset_detector.detect(audio.samples)

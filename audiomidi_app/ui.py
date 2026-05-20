@@ -32,6 +32,7 @@ try:
         QLabel,
         QLineEdit,
         QMainWindow,
+        QMessageBox,
         QProgressBar,
         QPushButton,
         QSizePolicy,
@@ -429,7 +430,7 @@ def run_app() -> None:
                 self.progress_percent.emit(35 + int(segment_progress))
                 self.progress.emit(f"模型特征解码中 (2/4) - {self._cfg.engine} [{seg_idx+1}/{total_segments}]")
 
-            events = transcriber.transcribe(audio.samples, audio.sample_rate, progress_callback=_segment_progress)
+            events = transcriber.transcribe(audio.samples, audio.sample_rate, progress_callback=_segment_progress, interrupt_check=lambda: self._interrupted)
             self.notes_found.emit(len(events))
             self.detail.emit(f"[{self._time()}] ✅ 音符检测完成: {len(events)} 个")
             self.progress_percent.emit(50)
@@ -545,7 +546,7 @@ def run_app() -> None:
             file_layout.addRow("音频输入", row_audio)
 
             self._out_path = QLineEdit()
-            self._out_path.setText(str(Path.cwd() / "output"))
+            self._out_path.setText(str(Path(__file__).resolve().parent.parent / "output"))
             self._out_path.setPlaceholderText("MIDI 文件存储目录路径")
             pick_out = QPushButton("浏览...")
             pick_out.setFixedWidth(54)
@@ -821,10 +822,9 @@ def run_app() -> None:
                     if Path(path).suffix.lower() in ['.wav', '.flac', '.ogg', '.mp3', '.m4a']:
                         paths.append(path)
             if paths:
-                self._audio_path.setText(paths[0])
-                if len(paths) > 1:
-                    self._audio_path.setText("\n".join(paths))
-                    self._status.setText(f"已导入 {len(paths)} 个文件")
+                self._audio_path.setPlainText("\n".join(paths))
+                n = len(paths)
+                self._status.setText(f"已导入 {n} 个文件" if n > 1 else "已导入 1 个文件")
 
         def _on_voice_sep_toggled(self, state: int) -> None:
             enabled = state == Qt.Checked.value
@@ -852,6 +852,27 @@ def run_app() -> None:
             path = QFileDialog.getExistingDirectory(self, "指定导出目录")
             if path:
                 self._out_path.setText(path)
+
+        def _is_running(self) -> bool:
+            return self._thread is not None and self._thread.isRunning()
+
+        def closeEvent(self, event) -> None:
+            if self._is_running():
+                reply = QMessageBox.question(
+                    self,
+                    "确认退出",
+                    "转谱正在进行中，确定要退出吗？\n退出后当前进度将丢失。",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    event.ignore()
+                    return
+                if self._worker:
+                    self._worker.interrupt()
+                if self._thread and self._thread.isRunning():
+                    self._thread.terminate()
+            event.accept()
 
         def _on_open_output_folder(self) -> None:
             path = self._out_path.text().strip()
@@ -976,6 +997,8 @@ def run_app() -> None:
                 self._run_next_batch()
 
         def _run_next_batch(self) -> None:
+            if not self._batch_items:
+                return
             if self._batch_idx >= len(self._batch_items):
                 n = len(self._batch_results)
                 self._log(f"====== 批量转谱完成: {n}/{len(self._batch_items)} 成功 ======")
@@ -1051,15 +1074,31 @@ def run_app() -> None:
         def _on_stop(self) -> None:
             if self._worker is not None:
                 self._worker.interrupt()
-            self._status.setText("进程终止信号已同步发射")
-            self._log("用户核心干预：转谱任务被手动终止。")
+            self._status.setText("⏹ 正在终止...")
+            self._log("用户请求终止转谱任务")
+            self._batch_items = []
             if self._thread and self._thread.isRunning():
-                self._thread.quit()
-                if not self._thread.wait(2000):
-                    self._thread.terminate()
-                    self._thread.wait()
+                self._thread.terminate()
+                self._thread.wait(500)
+            if self._worker:
+                try:
+                    self._worker.progress.disconnect()
+                    self._worker.detail.disconnect()
+                    self._worker.progress_percent.disconnect()
+                    self._worker.done.disconnect()
+                    self._worker.failed.disconnect()
+                    self._worker.notes_found.disconnect()
+                    self._worker.voices_found.disconnect()
+                except Exception:
+                    pass
+            self._thread = None
+            self._worker = None
+            self._set_ui_running(False)
+            self._status.setText("⏹ 已终止")
 
         def _on_done(self, out_path: str) -> None:
+            if self._worker is None:
+                return
             if out_path:
                 self._log("====== 任务完成 ======")
                 self._status.setText("✅ 转谱完成")
@@ -1067,6 +1106,8 @@ def run_app() -> None:
                 self._status.setText("⏹ 任务已停止")
 
         def _on_failed(self, msg: str) -> None:
+            if self._worker is None:
+                return
             self._log(f"❌ 运行错误: {msg}")
             self._status.setText("❌ 失败")
 
