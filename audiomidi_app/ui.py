@@ -43,6 +43,8 @@ try:
         QGroupBox,
         QScrollArea,
         QTextEdit,
+        QListWidget,
+        QListWidgetItem,
     )
     from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QTextCursor, QColor, QPalette
 except Exception as e:
@@ -71,13 +73,13 @@ class JobConfig:
 
 
 def _get_modern_stylesheet() -> str:
-    """Dark theme stylesheet"""
+    """Cyber Azure theme stylesheet"""
     return """
         QMainWindow, QWidget {
-            background-color: #0A0A0A;
+            background-color: #030712;
             font-family: "PingFang SC", "Microsoft YaHei", Consolas, monospace;
             font-size: 12px;
-            color: #CCCCCC;
+            color: #f1f5f9;
         }
 
         QScrollArea {
@@ -86,13 +88,13 @@ def _get_modern_stylesheet() -> str:
         }
 
         QWidget#densePanel {
-            background-color: #121212;
-            border: 1px solid #222222;
+            background-color: #0f172a;
+            border: 1px solid #1e293b;
         }
 
         QTabWidget::pane {
-            border: 1px solid #222222;
-            background-color: #121212;
+            border: 1px solid #1e293b;
+            background-color: #0f172a;
         }
         QTabBar {
             background-color: transparent;
@@ -100,32 +102,32 @@ def _get_modern_stylesheet() -> str:
         }
         QTabBar::tab {
             padding: 6px 14px;
-            background-color: #161616;
-            color: #777777;
-            border: 1px solid #222222;
+            background-color: #090e1a;
+            color: #64748b;
+            border: 1px solid #1e293b;
             border-bottom: none;
             margin-right: 2px;
         }
         QTabBar::tab:selected {
-            color: #FFFFFF;
-            background-color: #121212;
-            border-top: 2px solid #E03E3E;
+            color: #ffffff;
+            background-color: #0f172a;
+            border-top: 2px solid #38bdf8;
         }
         QTabBar::tab:hover:!selected {
-            color: #BBBBBB;
-            background-color: #1C1C1C;
+            color: #cbd5e1;
+            background-color: #1e293b;
         }
 
         QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
             padding: 4px 6px;
-            border: 1px solid #2A2A2A;
+            border: 1px solid #1e293b;
             border-radius: 0;
-            background-color: #0A0A0A;
-            color: #DDDDDD;
+            background-color: #030712;
+            color: #f1f5f9;
             height: 24px;
         }
         QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {
-            border-color: #E03E3E;
+            border-color: #38bdf8;
         }
 
         QComboBox::drop-down {
@@ -136,9 +138,9 @@ def _get_modern_stylesheet() -> str:
         QGroupBox {
             font-size: 11px;
             font-weight: bold;
-            color: #888888;
+            color: #64748b;
             border: none;
-            border-top: 1px dashed #222222;
+            border-top: 1px dashed #1e293b;
             margin-top: 14px;
             padding-top: 8px;
         }
@@ -147,111 +149,118 @@ def _get_modern_stylesheet() -> str:
             subcontrol-position: top left;
             left: 5px;
             padding: 0 4px;
-            background-color: #121212;
+            background-color: #0f172a;
+        }
+
+        QListWidget {
+            border: 1px solid #1e293b;
+            background-color: #090e1a;
+            color: #f1f5f9;
+            padding: 5px;
         }
 
         QPushButton {
             padding: 2px 10px;
-            border: 1px solid #2A2A2A;
-            background-color: #1A1A1A;
-            color: #CCCCCC;
+            border: 1px solid #1e293b;
+            background-color: #0f172a;
+            color: #cbd5e1;
             height: 24px;
         }
         QPushButton:hover {
-            background-color: #262626;
-            border-color: #444444;
-            color: #FFFFFF;
+            background-color: #1e293b;
+            border-color: #38bdf8;
+            color: #ffffff;
         }
         QPushButton:pressed {
-            background-color: #121212;
+            background-color: #030712;
         }
 
         QPushButton#runBtn {
-            background-color: #1A0D0D;
-            color: #E03E3E;
-            border: 1px solid #E03E3E;
+            background-color: #1a2238;
+            color: #38bdf8;
+            border: 1px solid #38bdf8;
             font-weight: bold;
         }
         QPushButton#runBtn:hover {
-            background-color: #2E1212;
-            color: #FF5252;
-            border-color: #FF5252;
+            background-color: #38bdf8;
+            color: #030712;
+            border-color: #38bdf8;
         }
         QPushButton#runBtn:pressed {
-            background-color: #441212;
+            background-color: #0284c7;
         }
         QPushButton#runBtn:disabled {
-            background-color: #121212;
-            border-color: #222222;
-            color: #444444;
+            background-color: #0f172a;
+            border-color: #1e293b;
+            color: #475569;
         }
 
         QPushButton#stopBtn {
-            background-color: #121212;
-            color: #888888;
-            border: 1px solid #2A2A2A;
+            background-color: #030712;
+            color: #64748b;
+            border: 1px solid #1e293b;
         }
         QPushButton#stopBtn:hover:enabled {
-            background-color: #262626;
-            color: #E03E3E;
-            border-color: #E03E3E;
+            background-color: #1e293b;
+            color: #38bdf8;
+            border-color: #38bdf8;
         }
 
         QCheckBox {
             spacing: 6px;
-            color: #AAAAAA;
+            color: #cbd5e1;
         }
         QCheckBox::indicator {
             width: 12px;
             height: 12px;
-            border: 1px solid #2A2A2A;
-            background-color: #0A0A0A;
+            border: 1px solid #1e293b;
+            background-color: #030712;
         }
         QCheckBox::indicator:hover {
-            border-color: #E03E3E;
+            border-color: #38bdf8;
         }
         QCheckBox::indicator:checked {
-            background-color: #E03E3E;
-            border-color: #E03E3E;
+            background-color: #38bdf8;
+            border-color: #38bdf8;
         }
 
         QProgressBar {
-            border: 1px solid #222222;
-            background-color: #0A0A0A;
+            border: 1px solid #1e293b;
+            background-color: #030712;
             height: 4px;
             text-visible: false;
         }
         QProgressBar::chunk {
-            background-color: #E03E3E;
+            background-color: #38bdf8;
         }
 
         QTextEdit {
-            border: 1px solid #222222;
-            background-color: #050505;
-            color: #A0A0A0;
+            border: 1px solid #1e293b;
+            background-color: #030712;
+            color: #94a3b8;
             font-family: Consolas, "JetBrains Mono", monospace;
             font-size: 11px;
             padding: 8px;
         }
 
         QLabel#statsLabel {
-            color: #666666;
+            color: #64748b;
             font-size: 11px;
         }
         QLabel#statusLabel {
-            color: #E03E3E;
+            color: #38bdf8;
             font-weight: bold;
         }
 
         QScrollBar:vertical {
-            background: #0A0A0A;
+            background: #030712;
             width: 5px;
         }
         QScrollBar::handle:vertical {
-            background: #222222;
+            background: #1e293b;
         }
         QScrollBar::handle:vertical:hover {
-            background: #444444;
+            background: #38bdf8;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             height: 0;
@@ -522,28 +531,47 @@ def run_app() -> None:
             main_layout.setContentsMargins(10, 10, 10, 10)  
             main_layout.setSpacing(8)
 
-            # ── 核心文件IO面板 ───────────────────────────────────────
-            file_panel = QWidget()
-            file_panel.setObjectName("densePanel")
-            file_layout = QFormLayout(file_panel)
-            file_layout.setContentsMargins(10, 8, 10, 8)
-            file_layout.setVerticalSpacing(6)
-            file_layout.setHorizontalSpacing(10)
-            file_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            file_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+            # ── Split grid layout spanning columns ───────────────────────────────────────
+            body_layout = QHBoxLayout()
+            body_layout.setSpacing(10)
 
+            # Left column: beautiful file list sidebar panel
+            left_col = QGroupBox("待转音频队列")
+            left_col_layout = QVBoxLayout(left_col)
+            left_col_layout.setContentsMargins(8, 8, 8, 8)
+            left_col_layout.setSpacing(6)
+
+            self._file_list_widget = QListWidget()
+            left_col_layout.addWidget(self._file_list_widget)
+
+            # Controls for queue list
+            list_btn_row = QHBoxLayout()
+            self._add_audio_btn = QPushButton("导入音频...")
+            self._add_audio_btn.clicked.connect(self._on_pick_audio)
+            self._clear_audio_btn = QPushButton("清空队列")
+            self._clear_audio_btn.clicked.connect(self._clear_audio_queue)
+            list_btn_row.addWidget(self._add_audio_btn)
+            list_btn_row.addWidget(self._clear_audio_btn)
+            left_col_layout.addLayout(list_btn_row)
+
+            # Keep hidden text-edit to synchronize paths cleanly
             self._audio_path = QTextEdit()
-            self._audio_path.setPlaceholderText("拖拽音频文件至此，或通过右侧定位...\n支持同时导入多个文件批量处理")
-            self._audio_path.setMaximumHeight(60)
-            self._audio_path.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-            pick_audio = QPushButton("浏览...")
-            pick_audio.setFixedWidth(54)
-            pick_audio.clicked.connect(self._on_pick_audio)
-            row_audio = QHBoxLayout()
-            row_audio.setSpacing(4)
-            row_audio.addWidget(self._audio_path, 1)
-            row_audio.addWidget(pick_audio)
-            file_layout.addRow("音频输入", row_audio)
+            self._audio_path.hide()
+
+            body_layout.addWidget(left_col, 2)
+
+            # Right column: Tabs setting profiles
+            right_col = QWidget()
+            right_col_layout = QVBoxLayout(right_col)
+            right_col_layout.setContentsMargins(0, 0, 0, 0)
+            right_col_layout.setSpacing(8)
+
+            # Output paths
+            outp_panel = QWidget()
+            outp_panel.setObjectName("densePanel")
+            outp_layout = QFormLayout(outp_panel)
+            outp_layout.setContentsMargins(8, 6, 8, 6)
+            outp_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             self._out_path = QLineEdit()
             self._out_path.setText(str(Path(__file__).resolve().parent.parent / "output"))
@@ -562,17 +590,17 @@ def run_app() -> None:
             row_out.addWidget(self._out_path, 1)
             row_out.addWidget(pick_out)
             row_out.addWidget(open_folder)
-            file_layout.addRow("输出路径", row_out)
+            outp_layout.addRow("输出目录", row_out)
 
-            main_layout.addWidget(file_panel)
+            right_col_layout.addWidget(outp_panel)
 
-            # ── 核心参数设置选项卡 ────────────────────────────────────
+            # Setup Options Tab panels
             tabs = QTabWidget()
             tabs.setDocumentMode(True)
 
-            # 页面 1: 基础与高级阈值参数
+            # Page 1: Parameters Config
             tab_transcribe = QWidget()
-            tab_transcribe.setStyleSheet("background-color: #121212;")
+            tab_transcribe.setStyleSheet("background-color: #0f172a;")
             transcribe_layout = QFormLayout(tab_transcribe)
             transcribe_layout.setContentsMargins(12, 10, 12, 10)
             transcribe_layout.setVerticalSpacing(6)
@@ -589,7 +617,6 @@ def run_app() -> None:
             self._bpm = QDoubleSpinBox()
             self._bpm.setRange(30.0, 400.0)
             self._bpm.setValue(120.0)
-            # 💡 移除固定死宽度，确保调节框有足够横向空间容纳内容而不会与周围重叠
             self._bpm.setMinimumWidth(75)
             bpm_row.addWidget(self._bpm)
             self._auto_bpm = QCheckBox("自动检测BPM")
@@ -624,7 +651,7 @@ def run_app() -> None:
             self._confidence_threshold.setRange(0.0, 1.0)
             self._confidence_threshold.setValue(0.2)
             self._confidence_threshold.setMinimumWidth(65)
-            postprocess_layout.addRow("置信度阈值（0.5 以下过滤 BP 补充音符）", self._confidence_threshold)
+            postprocess_layout.addRow("置信度阈值", self._confidence_threshold)
             
             self._bp_onset_threshold = QDoubleSpinBox()
             self._bp_onset_threshold.setRange(0.1, 0.9)
@@ -642,9 +669,9 @@ def run_app() -> None:
 
             tabs.addTab(tab_transcribe, "参数配置")
 
-            # 页面 2: 声部分离
+            # Page 2: Voice Separation
             tab_voice = QWidget()
-            tab_voice.setStyleSheet("background-color: #121212;")
+            tab_voice.setStyleSheet("background-color: #0f172a;")
             voice_layout = QVBoxLayout(tab_voice)
             voice_layout.setContentsMargins(12, 10, 12, 10)
             voice_layout.setSpacing(8)
@@ -690,37 +717,19 @@ def run_app() -> None:
 
             tabs.addTab(tab_voice, "声部分离")
 
-            # 页面 3: 云端
-            tab_cloud = QWidget()
-            tab_cloud.setStyleSheet("background-color: #121212;")
-            cloud_layout = QFormLayout(tab_cloud)
-            cloud_layout.setContentsMargins(12, 10, 12, 10)
-            cloud_layout.setVerticalSpacing(6)
-            cloud_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            self._cloud = QCheckBox("优先云端（失败回退本地）")
-            self._cloud.stateChanged.connect(self._on_cloud_toggled)
-            cloud_layout.addRow("", self._cloud)
-
-            self._cloud_url = QLineEdit("http://127.0.0.1:8000")
-            self._cloud_url.setEnabled(False)
-            cloud_layout.addRow("云端地址", self._cloud_url)
-
-            tabs.addTab(tab_cloud, "云端")
-
-            # 页面 4: 日志
+            # Page 3: Logs
             tab_log = QWidget()
-            tab_log.setStyleSheet("background-color: #050505;")
+            tab_log.setStyleSheet("background-color: #030712;")
             log_layout = QVBoxLayout(tab_log)
             log_layout.setContentsMargins(0, 0, 0, 0)
             log_layout.setSpacing(0)
 
             log_header = QWidget()
-            log_header.setStyleSheet("background-color: #121212; border-bottom: 1px solid #222222;")
+            log_header.setStyleSheet("background-color: #0f172a; border-bottom: 1px solid #1e293b;")
             log_header_layout = QHBoxLayout(log_header)
             log_header_layout.setContentsMargins(8, 2, 8, 2)
             log_title = QLabel("控制台输出")
-            log_title.setStyleSheet("font-size: 10px; font-weight: bold; color: #555555;")
+            log_title.setStyleSheet("font-size: 10px; font-weight: bold; color: #64748b;")
             log_header_layout.addWidget(log_title)
             log_header_layout.addStretch()
             
@@ -738,7 +747,11 @@ def run_app() -> None:
 
             tabs.addTab(tab_log, "日志")
 
-            main_layout.addWidget(tabs, 1)
+            right_col_layout.addWidget(tabs, 1)
+
+            body_layout.addWidget(right_col, 3)
+
+            main_layout.addLayout(body_layout, 1)
 
             # ── 底部状态控制面板 ─────────────────────────────────────
             footer = QWidget()
@@ -814,6 +827,20 @@ def run_app() -> None:
                             return
             event.ignore()
 
+        def _clear_audio_queue(self) -> None:
+            self._audio_path.setPlainText("")
+            self._file_list_widget.clear()
+            self._status.setText("队列已清空")
+
+        def _sync_file_list_widget(self, paths: list[str]) -> None:
+            self._file_list_widget.clear()
+            for path in paths:
+                p_obj = Path(path)
+                short_name = p_obj.name
+                size_mb = p_obj.stat().st_size / (1024 * 1024) if p_obj.exists() else 0
+                label = f"{short_name} ({size_mb:.2f} MB)" if size_mb > 0 else short_name
+                self._file_list_widget.addItem(label)
+
         def dropEvent(self, event: QDropEvent) -> None:
             paths = []
             for url in event.mimeData().urls():
@@ -822,8 +849,12 @@ def run_app() -> None:
                     if Path(path).suffix.lower() in ['.wav', '.flac', '.ogg', '.mp3', '.m4a']:
                         paths.append(path)
             if paths:
-                self._audio_path.setPlainText("\n".join(paths))
-                n = len(paths)
+                current_raw = self._audio_path.toPlainText().strip()
+                existing_paths = [p.strip() for p in current_raw.split("\n") if p.strip()]
+                all_paths = list(dict.fromkeys(existing_paths + paths))
+                self._audio_path.setPlainText("\n".join(all_paths))
+                self._sync_file_list_widget(all_paths)
+                n = len(all_paths)
                 self._status.setText(f"已导入 {n} 个文件" if n > 1 else "已导入 1 个文件")
 
         def _on_voice_sep_toggled(self, state: int) -> None:
@@ -831,9 +862,6 @@ def run_app() -> None:
             self._split_hands.setEnabled(enabled)
             self._left_channel.setEnabled(enabled and self._split_hands.isChecked())
             self._right_channel.setEnabled(enabled and self._split_hands.isChecked())
-
-        def _on_cloud_toggled(self, state: int) -> None:
-            self._cloud_url.setEnabled(state == Qt.Checked.value)
 
         def _on_pick_audio(self) -> None:
             paths, _ = QFileDialog.getOpenFileNames(
@@ -843,12 +871,15 @@ def run_app() -> None:
                 "音频格式 (*.wav *.flac *.ogg *.mp3 *.m4a);;全部文件 (*)"
             )
             if paths:
-                self._audio_path.setPlainText("\n".join(paths))
-                n = len(paths)
+                current_raw = self._audio_path.toPlainText().strip()
+                existing_paths = [p.strip() for p in current_raw.split("\n") if p.strip()]
+                all_paths = list(dict.fromkeys(existing_paths + paths))
+                self._audio_path.setPlainText("\n".join(all_paths))
+                self._sync_file_list_widget(all_paths)
+                n = len(all_paths)
                 self._status.setText(f"已导入 {n} 个文件" if n > 1 else "已导入 1 个文件")
 
         def _on_pick_out(self) -> None:
-            # 💡 【文件夹选择对话框文本汉化】
             path = QFileDialog.getExistingDirectory(self, "指定导出目录")
             if path:
                 self._out_path.setText(path)
@@ -890,7 +921,6 @@ def run_app() -> None:
             self._stop.setEnabled(running)
             self._engine.setEnabled(not running)
             self._bpm.setEnabled(not running)
-            self._cloud.setEnabled(not running)
             self._audio_path.setEnabled(not running)
             self._out_path.setEnabled(not running)
             self._use_voice_sep.setEnabled(not running)
@@ -919,8 +949,8 @@ def run_app() -> None:
                     engine=self._engine.currentText(),
                     bpm=self._bpm.value(),
                     auto_bpm=self._auto_bpm.isChecked(),
-                    cloud_enabled=self._cloud.isChecked(),
-                    cloud_base_url=self._cloud_url.text().strip(),
+                    cloud_enabled=False,
+                    cloud_base_url="",
                     use_voice_separation=self._use_voice_sep.isChecked(),
                     split_hands=self._split_hands.isChecked(),
                     left_hand_channel=self._left_channel.value(),
