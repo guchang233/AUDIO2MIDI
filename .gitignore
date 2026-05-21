@@ -168,4 +168,5 @@ $RECYCLE.BIN/
 .gitignore
 audiomidi_app.zip
 todo
-.web/
+
+web/
