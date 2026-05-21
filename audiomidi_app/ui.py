@@ -624,7 +624,7 @@ def run_app() -> None:
             self._confidence_threshold.setRange(0.0, 1.0)
             self._confidence_threshold.setValue(0.2)
             self._confidence_threshold.setMinimumWidth(65)
-            postprocess_layout.addRow("置信度阈值", self._confidence_threshold)
+            postprocess_layout.addRow("置信度阈值（0.5 以下过滤 BP 补充音符）", self._confidence_threshold)
             
             self._bp_onset_threshold = QDoubleSpinBox()
             self._bp_onset_threshold.setRange(0.1, 0.9)

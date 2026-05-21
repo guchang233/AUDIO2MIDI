@@ -67,6 +67,11 @@ class VoiceState:
         recent = [n.end_s for n in self.notes[-3:]]
         return 1.0 / (1.0 + (max(recent) - self.last_end_time) * 0.1)
     
+    def get_activity_score(self, current_time: float) -> float:
+        if not self.notes:
+            return 0.0
+        return 1.0 / (1.0 + (current_time - self.last_end_time) * 0.1)
+    
     def predict_next_pitch(self) -> float:
         if len(self.pitch_history) < 2:
             return self.last_pitch
@@ -175,7 +180,7 @@ def compute_voice_cost(
            (recent_avg < note.note and note.note > voice.last_pitch + 3):
             crossing_cost = config.crossing_penalty_weight
     
-    activity_factor = 1.0 / (1.0 + voice.activity_score)
+    activity_factor = 1.0 / (1.0 + voice.get_activity_score(current_time))
     activity_cost = inactivity_cost * activity_factor * 0.5
     
     return pitch_cost + time_cost + velocity_cost + motion_cost + direction_cost + inactivity_cost + overlap_cost + crossing_cost + activity_cost
@@ -284,12 +289,12 @@ def assign_voices_beam_search(
                 if len(hypothesis.states) < config.max_voices:
                     n_active = sum(1 for v in hypothesis.states if v.is_note_active_at(current_time))
                     birth_cost = config.voice_birth_cost_base + n_active * 20.0
-                    
+
                     new_states = deepcopy(hypothesis.states)
                     new_voice = VoiceState(id=len(new_states))
                     new_voice.add_note(note)
                     new_states.append(new_voice)
-                    
+
                     new_hypothesis = AssignmentHypothesis(
                         states=new_states,
                         total_cost=hypothesis.total_cost + birth_cost,
@@ -297,7 +302,11 @@ def assign_voices_beam_search(
                         left_hand=deepcopy(hypothesis.left_hand),
                         right_hand=deepcopy(hypothesis.right_hand),
                     )
-                    new_hypothesis.left_hand.update(note.note, config.hand_smoothing_factor)
+                    avg_pitch_new = new_voice.avg_pitch
+                    if avg_pitch_new < 60:
+                        new_hypothesis.left_hand.update(note.note, config.hand_smoothing_factor)
+                    else:
+                        new_hypothesis.right_hand.update(note.note, config.hand_smoothing_factor)
                     heapq.heappush(new_beam, new_hypothesis)
             
             else:
@@ -336,7 +345,10 @@ def assign_voices_beam_search(
                             new_voice.add_note(note)
                             new_states.append(new_voice)
                             new_hypothesis.total_cost += config.voice_birth_cost_base
-                            new_hypothesis.left_hand.update(note.note, config.hand_smoothing_factor)
+                            if note.note < 60:
+                                new_hypothesis.left_hand.update(note.note, config.hand_smoothing_factor)
+                            else:
+                                new_hypothesis.right_hand.update(note.note, config.hand_smoothing_factor)
                         else:
                             min_voice = min(range(len(new_states)), 
                                           key=lambda v: compute_voice_cost(note, new_states[v], config, current_time))

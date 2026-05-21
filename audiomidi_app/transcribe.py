@@ -613,19 +613,22 @@ def try_piano_transcription_transcriber() -> Transcriber | None:
                 device = "cpu"
             print(f"[Piano Transcription] 使用设备: {device}")
             checkpoint = str(PT_MODEL_PATH) if PT_MODEL_PATH.exists() else str(default_pt_path)
-            self._model = PianoTranscription(device=device, checkpoint_path=checkpoint)
+            try:
+                self._model = PianoTranscription(device=device, checkpoint_path=checkpoint)
+            except TypeError:
+                try:
+                    self._model = PianoTranscription(device=device, checkpoint=checkpoint)
+                except TypeError:
+                    self._model = PianoTranscription(device=device)
             self._pedal_config = PedalConfig()
 
         def _transcribe_segment(self, audio_arr: np.ndarray, sample_rate_out: int) -> tuple[list[NoteEvent], list[dict]]:
             result = self._model.transcribe(audio_arr, midi_path=None)
-
             note_list = result.get("notes") or result.get("est_note_events") or []
             pedal_list = result.get("pedals") or result.get("est_pedal_events") or []
-
             return note_list, pedal_list
 
         def transcribe(self, samples: np.ndarray, sample_rate_in: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
-            import soundfile as sf
             from piano_transcription_inference import sample_rate as PT_SR
 
             if sample_rate_in != PT_SR:
@@ -821,31 +824,98 @@ class EnsembleTranscriber:
         self._bp = bp
 
     def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
+        TIME_TOL = 0.040
+
         pt_events = self._pt.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
         if interrupt_check and interrupt_check():
             return pt_events
         bp_events = self._bp.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
+        if interrupt_check and interrupt_check():
+            return pt_events
 
-        PITCH_TOL = 0
-        TIME_TOL = 0.08
+        pt_events = sorted(pt_events, key=lambda e: (e.start_s, e.note))
+        bp_events = sorted(bp_events, key=lambda e: (e.start_s, e.note))
 
-        pt_lookup: dict[int, list[NoteEvent]] = {}
-        for e in pt_events:
-            pt_lookup.setdefault(e.note, []).append(e)
+        pt_median_vel = float(np.median([e.velocity for e in pt_events])) if pt_events else 64.0
 
-        added = []
-        for bp_note in bp_events:
-            pt_candidates = pt_lookup.get(bp_note.note, [])
-            is_duplicate = any(
-                abs(bp_note.start_s - pt.start_s) <= TIME_TOL
-                for pt in pt_candidates
-            )
-            if not is_duplicate:
-                added.append(bp_note)
+        bp_by_note: dict[int, list[NoteEvent]] = {}
+        for e in bp_events:
+            bp_by_note.setdefault(e.note, []).append(e)
 
-        combined = pt_events + added
-        combined.sort(key=lambda e: (e.start_s, e.note))
-        return combined
+        bp_matched: set[tuple[int, int]] = set()
+        result: list[NoteEvent] = []
+
+        for pt_note in pt_events:
+            bp_candidates = bp_by_note.get(pt_note.note, [])
+            best_bp = None
+            best_dist = float('inf')
+            best_bp_idx = -1
+
+            for bp_idx, bp_note in enumerate(bp_candidates):
+                if (pt_note.note, bp_idx) in bp_matched:
+                    continue
+                dist = abs(bp_note.start_s - pt_note.start_s)
+                if dist <= TIME_TOL and dist < best_dist:
+                    best_dist = dist
+                    best_bp = bp_note
+                    best_bp_idx = bp_idx
+
+            if best_bp is not None:
+                bp_matched.add((pt_note.note, best_bp_idx))
+                merged_vel = int(round(pt_note.velocity * 0.7 + best_bp.velocity * 0.3))
+                result.append(NoteEvent(
+                    note=pt_note.note,
+                    start_s=pt_note.start_s,
+                    end_s=max(pt_note.end_s, best_bp.end_s),
+                    velocity=int(np.clip(merged_vel, 1, 127)),
+                    confidence=1.0,
+                ))
+            else:
+                result.append(NoteEvent(
+                    note=pt_note.note,
+                    start_s=pt_note.start_s,
+                    end_s=pt_note.end_s,
+                    velocity=pt_note.velocity,
+                    confidence=1.0,
+                ))
+
+        for note_num, bp_list in bp_by_note.items():
+            for bp_idx, bp_note in enumerate(bp_list):
+                if (note_num, bp_idx) in bp_matched:
+                    continue
+                bp_vel_aligned = int(np.clip(
+                    (bp_note.velocity - 64) * 0.5 + pt_median_vel,
+                    1, 127
+                ))
+                result.append(NoteEvent(
+                    note=bp_note.note,
+                    start_s=bp_note.start_s,
+                    end_s=bp_note.end_s,
+                    velocity=bp_vel_aligned,
+                    confidence=0.5,
+                ))
+
+        n_both = sum(1 for e in result if e.confidence == 1.0)
+        n_bp_only = sum(1 for e in result if abs(e.confidence - 0.5) < 0.01)
+        print(f"[Ensemble] PT+BP={n_both}, PT-only={len(result)-n_both-n_bp_only}, BP-only={n_bp_only}, "
+              f"total={len(result)}, PT原始={len(pt_events)}, BP原始={len(bp_events)}")
+
+        pt_result_lookup: dict[int, list[NoteEvent]] = {}
+        for e in result:
+            if e.confidence > 0.5:
+                pt_result_lookup.setdefault(e.note, []).append(e)
+
+        final: list[NoteEvent] = []
+        for e in result:
+            if e.confidence <= 0.5:
+                candidates = pt_result_lookup.get(e.note, [])
+                is_dup = any(abs(e.start_s - c.start_s) < 0.020 for c in candidates)
+                if is_dup:
+                    continue
+            final.append(e)
+
+        final.sort(key=lambda e: (e.start_s, e.note))
+        return final
 
 
 def available_transcribers() -> list[Transcriber]:

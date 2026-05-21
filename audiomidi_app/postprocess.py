@@ -161,7 +161,7 @@ def refine_onsets_from_global_detector(
             threshold=0.015,
         )
 
-        if nearby_onset is not None:
+        if nearby_onset is not None and nearby_onset < event.end_s:
             onset_time = nearby_onset
         
         refined_events.append(NoteEvent(
@@ -260,7 +260,9 @@ def smooth_velocities_savgol(
         
         velocities = [e.velocity for _, e in indexed_events]
         
-        window = min(config.velocity_savgol_window, len(velocities) if len(velocities) % 2 == 1 else len(velocities) - 1)
+        window = min(config.velocity_savgol_window, len(velocities))
+        if window % 2 == 0:
+            window -= 1
         if window < 3:
             window = 3
         
@@ -446,8 +448,28 @@ def full_postprocess(
             )
             for e in events
         ]
+
+        by_note_vel: dict[int, list[tuple[int, int]]] = {}
+        for i, e in enumerate(events):
+            by_note_vel.setdefault(e.note, []).append((i, e.velocity))
+        smoothed_vel = [e.velocity for e in events]
+        for note_num, idx_vel_list in by_note_vel.items():
+            if len(idx_vel_list) < 3:
+                continue
+            idxs = [x[0] for x in idx_vel_list]
+            vels = [x[1] for x in idx_vel_list]
+            for k in range(1, len(vels) - 1):
+                smoothed_vel[idxs[k]] = int(np.median([vels[k-1], vels[k], vels[k+1]]))
+        events = [
+            NoteEvent(note=e.note, start_s=e.start_s, end_s=e.end_s,
+                     velocity=smoothed_vel[i], confidence=e.confidence)
+            for i, e in enumerate(events)
+        ]
+
         if config.enable_quantization:
             events = quantize_onsets_gentle(events, bpm, config.quantize_division, threshold=0.15)
+        if config.confidence_threshold > 0:
+            events = [e for e in events if e.confidence >= config.confidence_threshold]
         events.sort(key=lambda e: (e.start_s, e.note))
         return events
 

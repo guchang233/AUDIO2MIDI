@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 from scipy.signal import resample_poly
+
+_TANH1 = math.tanh(1.0)
 
 
 @dataclass(frozen=True)
@@ -45,7 +48,7 @@ def read_audio(
                 data = data * (target_rms / rms)
                 peak = float(np.max(np.abs(data)))
                 if peak > 0.99:
-                    data = np.tanh(data) * 0.99
+                    data = (np.tanh(data) / _TANH1 * 0.99).astype(np.float32)
                 data = data.astype(np.float32, copy=False)
         else:
             peak = np.max(np.abs(data))
