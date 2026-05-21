@@ -99,7 +99,7 @@ async def list_engines():
 @app.post("/api/transcribe")
 async def transcribe_sync(
     file: UploadFile = File(...),
-    engine: str = Form("Ensemble (PT + BP)"),
+    engine: str = Form("Piano Transcription (Neural)"),
     bpm: float = Form(120.0),
     auto_bpm: bool = Form(False),
     normalize: bool = Form(True),
@@ -170,7 +170,7 @@ async def transcribe_sync(
 @app.post("/api/jobs")
 async def create_job(
     files: list[UploadFile] = File(...),
-    engine: str = Form("Ensemble (PT + BP)"),
+    engine: str = Form("Piano Transcription (Neural)"),
     bpm: float = Form(120.0),
     auto_bpm: bool = Form(False),
     normalize: bool = Form(True),
