@@ -826,7 +826,7 @@ class EnsembleTranscriber:
     def transcribe(self, samples: np.ndarray, sample_rate: int, progress_callback=None, interrupt_check=None) -> list[NoteEvent]:
         TIME_TOL = 0.040
 
-        pt_events = self._pt.transcribe(samples, sample_rate, interrupt_check=interrupt_check)
+        pt_events = self._pt.transcribe(samples, sample_rate, progress_callback=progress_callback, interrupt_check=interrupt_check)
         if interrupt_check and interrupt_check():
             return pt_events
         bp_events = self._bp.transcribe(samples, sample_rate, interrupt_check=interrupt_check)

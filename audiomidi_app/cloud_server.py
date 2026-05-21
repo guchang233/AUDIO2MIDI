@@ -61,6 +61,7 @@ class JobState:
     status: str = "pending"
     progress: int = 0
     message: str = ""
+    stage_text: str = ""
     result_files: list[str] = field(default_factory=list)
     logs: list[str] = field(default_factory=list)
     ws_clients: list[WebSocket] = field(default_factory=list)
@@ -71,8 +72,9 @@ class JobState:
             "status": self.status,
             "progress": self.progress,
             "message": self.message,
+            "stage_text": self.stage_text,
             "result_files": self.result_files,
-            "logs": self.logs[-3:],
+            "logs": self.logs,
         }
         dead = []
         for ws in self.ws_clients:
@@ -215,8 +217,18 @@ async def _run_job(job_id: str, audio_paths: list[str], work_dir: str, cfg: dict
     engine_name = cfg["engine"]
     is_neural = engine_name in ("Piano Transcription (Neural)", "Basic Pitch", "Ensemble (PT + BP)")
     total = len(audio_paths)
+    bpm_val = cfg.get("bpm", 120.0)
+
     state.status = "running"
-    state.message = f"0/{total}"
+    state.progress = 0
+    state.message = "正在启动"
+    state.stage_text = "正在启动"
+    state.log(f"任务初始化...")
+    state.log(f"推理引擎: {engine_name}")
+    if cfg.get("auto_bpm", False):
+        state.log(f"速度(BPM): 自动测速")
+    else:
+        state.log(f"速度(BPM): {bpm_val}")
     await state.broadcast()
 
     transcribers = available_transcribers()
@@ -250,12 +262,28 @@ async def _run_job(job_id: str, audio_paths: list[str], work_dir: str, cfg: dict
             await state.broadcast()
             return
 
-        state.progress = int((idx / total) * 100)
-        state.message = f"{idx + 1}/{total}"
-        state.log(f"处理 [{idx + 1}/{total}]: {Path(audio_path).name}")
+        fname = Path(audio_path).name
+        out_name = Path(audio_path).with_suffix(".mid").name
+
+        def set_stage(pct: int, stage: str) -> None:
+            if total <= 1:
+                state.progress = pct
+            else:
+                base = int(idx / total * 100)
+                file_share = int(95 / total)
+                state.progress = min(base + int(pct * file_share / 100), 99)
+            state.stage_text = stage
+            asyncio.create_task(state.broadcast())
+
+        set_stage(0, f"[{idx + 1}/{total}] 正在启动")
+        state.log(f"输入文件: {audio_path}")
+        state.log(f"输出目录: {out_dir}")
+        state.log(f"导出目标: {out_name}")
         await state.broadcast()
 
         try:
+            set_stage(5, f"[{idx + 1}/{total}] 分析音频 (1/4)")
+            state.log("分析音频 (1/4)")
             audio = read_audio(
                 audio_path,
                 target_sr=None,
@@ -264,25 +292,40 @@ async def _run_job(job_id: str, audio_paths: list[str], work_dir: str, cfg: dict
                 normalize_mode="rms" if is_neural else "peak",
                 preemphasis=cfg.get("preemphasis", False) and not is_neural,
             )
+            duration = len(audio.samples) / audio.sample_rate
+            state.log(f"✅ 音频序列加载就绪 | 采样率: {audio.sample_rate}Hz | 总长: {duration:.2f}秒")
+            await state.broadcast()
 
-            bpm = cfg.get("bpm", 120.0)
+            if state.interrupted:
+                return
+
+            bpm = bpm_val
             if cfg.get("auto_bpm", False):
                 bpm = detect_bpm(audio.samples, audio.sample_rate)
+                state.log(f"✅ BPM检测完成: {bpm:.1f}")
+
+            set_stage(35, f"[{idx + 1}/{total}] 模型推理中 (2/4) - {engine_name}")
+            state.log(f"模型推理中 (2/4) - {engine_name}")
+            await state.broadcast()
 
             def on_segment_progress(seg_idx: int, total_segments: int) -> None:
                 if total_segments <= 1:
                     return
-                seg_pct = int((idx + (seg_idx + 1) / total_segments) / total * 100)
-                state.progress = min(seg_pct, 99)
-                state.message = f"{idx + 1}/{total} (Segment {seg_idx + 1}/{total_segments})"
+                seg_pct = 35 + int((seg_idx + 1) / total_segments * 15)
+                set_stage(seg_pct, f"模型特征解码中 (2/4) - {engine_name} [{seg_idx + 1}/{total_segments}]")
                 state.log(f"Segment {seg_idx + 1} / {total_segments}")
-                asyncio.create_task(state.broadcast())
 
             events = transcriber.transcribe(
                 audio.samples, audio.sample_rate,
                 progress_callback=on_segment_progress,
                 interrupt_check=lambda: state.interrupted,
             )
+
+            n_notes = len(events)
+            state.log(f"✅ 音符检测完成: {n_notes} 个")
+            set_stage(50, f"[{idx + 1}/{total}] 执行数据后处理优化 (3/5)")
+            state.log("执行数据后处理优化 (3/5)")
+            await state.broadcast()
 
             pp_config = PostProcessConfig(
                 confidence_threshold=cfg.get("confidence_threshold", 0.2),
@@ -300,19 +343,76 @@ async def _run_job(job_id: str, audio_paths: list[str], work_dir: str, cfg: dict
                 is_neural=is_neural,
             )
 
-            out_path = out_dir / Path(audio_path).with_suffix(".mid").name
-            mid = events_to_midi(events, bpm=bpm)
+            n_after_pp = len(events)
+            state.log(f"✅ 过滤后处理完成 | 有效音符留存: {n_after_pp}")
+            set_stage(60, f"[{idx + 1}/{total}] 生成转谱报告")
+
+            try:
+                from audiomidi_app.diagnostics import print_transcription_report
+                import io as _io, sys
+                buf = _io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    print_transcription_report(events, duration)
+                finally:
+                    sys.stdout = old_stdout
+                for line in buf.getvalue().strip().split("\n"):
+                    if line.strip():
+                        state.log(line)
+            except Exception:
+                pass
+
+            use_voice_sep = cfg.get("use_voice_separation", False)
+            split_hands = cfg.get("split_hands", True)
+            left_ch = cfg.get("left_hand_channel", 1)
+            right_ch = cfg.get("right_hand_channel", 2)
+
+            voice_result = None
+            if use_voice_sep:
+                set_stage(70, f"[{idx + 1}/{total}] 声部分离中 (3/4)")
+                state.log("声部分离中 (3/4)")
+                try:
+                    from audiomidi_app.voice_separation import separate_voices, VoiceSeparationResult
+                    voice_result = separate_voices(events)
+                    n_voices = len(voice_result.voices) if voice_result else 0
+                    state.log(f"✅ 声部分离完成 | 音轨数: {n_voices}")
+                except Exception as e:
+                    state.log(f"⚠️ 声部分离失败: {e}")
+                set_stage(75, f"[{idx + 1}/{total}] 导出MIDI (4/4)")
+            else:
+                set_stage(85, f"[{idx + 1}/{total}] 导出MIDI (4/4)")
+
+            state.log("导出MIDI (4/4)")
+            await state.broadcast()
+
+            out_path = out_dir / out_name
+            if voice_result and split_hands:
+                from audiomidi_app.midi import events_to_midi_with_hands
+                mid = events_to_midi_with_hands(
+                    voice_result, bpm=bpm,
+                    left_channel=left_ch,
+                    right_channel=right_ch,
+                )
+            else:
+                mid = events_to_midi(events, bpm=bpm)
+
             mid.save(str(out_path))
-            state.result_files.append(out_path.name)
-            state.log(f"✅ 完成: {out_path.name} ({len(events)} 音符)")
+            size_kb = out_path.stat().st_size / 1024
+            state.result_files.append(out_name)
+            state.log(f"✅ 编译成功: {out_name} ({size_kb:.1f} KB)")
+            set_stage(95, f"[{idx + 1}/{total}] 完成")
+
         except Exception as e:
-            state.log(f"❌ 失败: {Path(audio_path).name} - {e}")
+            state.log(f"❌ 失败: {fname} - {e}")
 
         await state.broadcast()
 
     state.status = "done"
     state.progress = 100
     state.message = f"{len(state.result_files)}/{total} 完成"
+    state.stage_text = "任务完成"
+    state.log(f"====== 任务完成 ======")
     await state.broadcast()
 
 
@@ -326,8 +426,9 @@ async def get_job_status(job_id: str) -> JSONResponse:
         "status": state.status,
         "progress": state.progress,
         "message": state.message,
+        "stage_text": state.stage_text,
         "result_files": state.result_files,
-        "logs": state.logs[-20:],
+        "logs": state.logs,
     })
 
 
@@ -346,8 +447,9 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
             "status": state.status,
             "progress": state.progress,
             "message": state.message,
+            "stage_text": state.stage_text,
             "result_files": state.result_files,
-            "logs": state.logs[-10:],
+            "logs": state.logs,
         }
         await websocket.send_json(payload)
         while True:
